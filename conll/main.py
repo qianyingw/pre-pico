@@ -12,6 +12,8 @@ os.chdir("/home/qwang/bioner/conll")
 
 import tensorflow as tf
 import numpy as np
+import pandas as pd
+from tqdm import tqdm
 
 from arg_parser import get_args
 import utils
@@ -78,6 +80,10 @@ train_seqs, train_tags = vectorizer(train_data, word2idx, tag2idx)
 valid_seqs, valid_tags = vectorizer(valid_data, word2idx, tag2idx)
 test_seqs, test_tags = vectorizer(test_data, word2idx, tag2idx)
 
+train_seqs, train_tags = train_seqs[:1000], train_tags[:1000]
+valid_seqs, valid_tags = valid_seqs[:100], valid_tags[:100]
+test_seqs, test_tags = test_seqs[:100], test_tags[:100]
+
 #%% Load embeddings
 # Loading glove embeddings
 embeddings = {}
@@ -119,8 +125,8 @@ test_batches = test_ds.padded_batch(batch_size = args.batch_size, padded_shapes 
 
 # for batch in train_batches.take(3):
 #     # print(batch)
-#     print("Batch seq shape: {}".format(batch[0].shape))  # seq batch
-#     print("Batch tag shape: {}".format(batch[1].shape))  # tag batch
+#     print("Batch seq shape: {}".format(batch[0].shape))  # seq batch: [batch_size, seq_len]
+#     print("Batch tag shape: {}".format(batch[1].shape))  # tag batch: [batch_size, seq_len]
 #     print("========================")
                                
 #%% Define model, optimizer, loss   
@@ -152,7 +158,7 @@ def train_fn(model, batch_seq, batch_tag):
     train_loss.update_state(batch_loss)
     
     probs = tf.nn.softmax(logits, axis=2)  # [batch_size, seq_len, output_dim]
-    preds = tf.math.argmax(probs, axis=2)  # [batch_size, seq_len]
+    preds = tf.argmax(probs, axis=2)  # [batch_size, seq_len]
     
     return preds
 
@@ -163,48 +169,50 @@ def valid_fn(model, batch_seq, batch_tag):
     valid_loss.update_state(batch_loss)
     
     probs = tf.nn.softmax(logits, axis=2)  # [batch_size, seq_len, output_dim]
-    preds = tf.math.argmax(probs, axis=2)  # [batch_size, seq_len]   
+    preds = tf.argmax(probs, axis=2)  # [batch_size, seq_len]   
       
     return preds
 
 #%% Run
+n_train_batches = len(list(train_batches))
+n_valid_batches = len(list(valid_batches))
+
 for epoch in tf.range(1, args.epochs+1):
     
     ### Train ###
-    epoch_preds, epoch_trues = [], []
-    for batch_seq, batch_tag in train_batches:
-        preds = train_fn(model, batch_seq, batch_tag)  # [batch_size, seq_len]
-        
-        # Convert tensor to ndarray to list
-        preds = tf.make_ndarray(tf.make_tensor_proto(preds)).tolist()
-        trues = tf.make_ndarray(tf.make_tensor_proto(batch_tag)).tolist()
-        for i in preds:
-            epoch_preds.append(i)
-        for i in trues:
-            epoch_trues.append(i)
+    epoch_batch_preds, epoch_batch_trues = [], []
+    with tqdm(total = n_train_batches) as progress_bar:
+        for batch_seq, batch_tag in train_batches:
+            preds = train_fn(model, batch_seq, batch_tag)  # [batch_size, seq_len]
             
+            epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
+            epoch_batch_trues.append(batch_tag)                    
+            progress_bar.update(1)
+            
+    # Convert epoch_idxs to epoch_tags
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
     # Calculate metrics for whole epoch
-    epoch_tag_preds, epoch_tag_trues = utils.idx2tag_fn(epoch_preds, epoch_trues, idx2tag)
-    train_scores = utils.scores(epoch_tag_trues, epoch_tag_preds)
-    
+    train_scores = utils.scores(epoch_tag_trues, epoch_tag_preds)    
     
     ### Valid ###
-    epoch_preds, epoch_trues = [], []
-    for batch_seq, batch_tag in valid_batches:
-        preds = valid_fn(model, batch_seq, batch_tag)
-        # Convert tensor to ndarray to list
-        preds = tf.make_ndarray(tf.make_tensor_proto(preds)).tolist()
-        trues = tf.make_ndarray(tf.make_tensor_proto(batch_tag)).tolist()
-        for i in preds:
-            epoch_preds.append(i)
-        for i in trues:
-            epoch_trues.append(i)
+    epoch_batch_preds, epoch_batch_trues = [], []
+    with tqdm(total = n_valid_batches) as progress_bar:
+        for batch_seq, batch_tag in valid_batches:
+            preds = valid_fn(model, batch_seq, batch_tag)
+            
+            epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
+            epoch_batch_trues.append(batch_tag)                    
+            progress_bar.update(1)
     
+    # Convert epoch_idxs to epoch_tags
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
     # Calculate metrics for whole epoch
-    epoch_tag_preds, epoch_tag_trues = utils.idx2tag_fn(epoch_preds, epoch_trues, idx2tag)
     valid_scores = utils.scores(epoch_tag_trues, epoch_tag_preds)
-        
-    tf.print(tf.strings.format('[Epoch{}|train] loss: {}, f1: {}, rec: {}, prec: {}, acc: {}', 
+     
+    
+    tf.print(tf.strings.format('\n[Epoch{}|train] loss: {}, f1: {}, rec: {}, prec: {}, acc: {}', 
                                (epoch, train_loss.result(), 
                                 train_scores['f1'], train_scores['rec'], 
                                 train_scores['prec'], train_scores['acc'])))
@@ -218,9 +226,38 @@ for epoch in tf.range(1, args.epochs+1):
     valid_loss.reset_states()
     
 
-#%%
-# 5 mins for 2 epochs
-# Epoch=1 | [train] loss:0.00269821566, f1:0.98748645605387841, rec:0.988978254393804, prec:0.98599915146372508, acc:0.999363244 
-# | [valid] loss:0.0487371907, f1:0.83901080904028835, rec:0.86216762032985528, prec:0.81706539074960127, acc:0.988969
-# Epoch=2 | [train] loss:0.00198190822, f1:0.98791752489754314, rec:0.98991446444529552, prec:0.98592862592184449, acc:0.999393821 
-# | [valid] loss:0.0602309704, f1:0.79987030882710541, rec:0.8303601480982834, prec:0.77154026583268176, acc:0.987153172
+# Save model weights    
+model.save_weights(f"{args.exp_dir}/tf_model_wgts", save_format='tf')
+# # Save model architecture and args   
+# model.save(f"{args.exp_dir}/tf_model", save_format="tf")
+
+
+#%% Evaluation on valid/test set (classification report)
+from seqeval.metrics import classification_report
+def cls_report(batches, wgt_file, cls_file):
+    model.load_weights(os.path.join(args.exp_dir, wgt_file))
+    epoch_batch_preds, epoch_batch_trues = [], []
+    for batch_seq, batch_tag in batches:
+        preds = valid_fn(model, batch_seq, batch_tag)
+        epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
+        epoch_batch_trues.append(batch_tag)  
+
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
+    
+    print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False))
+    report = classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=True)
+    df = pd.DataFrame(report).transpose()
+    df.to_csv(os.path.join(args.exp_dir, cls_file), sep=',', header=True, index=True)
+
+cls_report(valid_batches, wgt_file='tf_model_wgts', cls_file='cls_valid.csv')
+cls_report(test_batches, wgt_file='tf_model_wgts', cls_file='cls_test.csv')
+
+   
+#%% Predict
+from predict import pred_one_text
+text = '''Talks over a post-Brexit trade agreement will resume later, after the UK and EU agreed to "go the extra mile" in search of a breakthrough.'''
+seq_tagged = pred_one_text(text, word2idx, idx2tag, model)
+for token, tag in seq_tagged:
+    if tag != 'O':
+        print(token, tag)
