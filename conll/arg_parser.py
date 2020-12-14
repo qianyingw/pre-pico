@@ -35,6 +35,8 @@ def get_args():
     parser.add_argument('--lr', nargs="?", type=float, default=0.01, help='Adam learning rate')
     
     parser.add_argument('--data_dir', nargs="?", type=str, default="/home/qwang/bioner/conll/data", help='Directory of info data files')
+    parser.add_argument('--exp_dir', nargs="?", type=str, default="/home/qwang/bioner/conll/exp", help="The directory of the model predictions and checkpoints saved")
+    
     parser.add_argument('--max_vocab_size', nargs="?", type=int, default=None, help='Maximum size of the vocabulary')
     parser.add_argument('--embed_dim', nargs="?", type=int, default=100, help='Embedding dim')
     parser.add_argument('--hidden_dim', nargs="?", type=int, default=64, help='Dim of lstm hidden states')
