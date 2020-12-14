@@ -7,6 +7,7 @@ Created on Fri Dec 11 13:29:25 2020
 """
 
 import numpy as np
+import tensorflow as tf
 
 #%% Load conll data
 def load_conll(filename):
@@ -30,20 +31,29 @@ def load_conll(filename):
 
 
 #%%
-def idx2tag_fn(epoch_preds, epoch_trues, idx2tag):
+def epoch_idx2tag(epoch_batch_idxs, idx2tag):
+    '''
+        Flatten list of batch tensors with shape [batch_size, seq_len]
+        Convert each batch tensor to ndarray, then to list
+        append idxs of each sample to epoch_idxs
+        Convert epoch_idxs to epoch_tags      
+    '''
     
-    epoch_tag_preds = []
-    for preds in epoch_preds:
-        tag_preds = [idx2tag[i] for i in preds]
-        epoch_tag_preds.append(tag_preds)
+    epoch_idxs = []
+    # Flatten list of batch tensors
+    for batch_idxs in epoch_batch_idxs:
+        # Convert each batch tensor to ndarray, then to list
+        batch_idxs = tf.make_ndarray(tf.make_tensor_proto(batch_idxs)).tolist()  # len(batch_idxs) = batch_size, len(batch_idxs[0]) = seq_len (same within batch)
+        for sample_idxs in batch_idxs:
+            epoch_idxs.append(sample_idxs) # len(epoch_idxs) = n_samples, len(epoch_idxs[0]) = seq_len (varies among samples)  
 
-    epoch_tag_trues = []
-    for trues in epoch_trues:
-        tag_trues = [idx2tag[i] for i in trues]
-        epoch_tag_trues.append(tag_trues)
+    epoch_tags = []
+    # idxs is list of index for a single text
+    for idxs in epoch_idxs:
+        tags = [idx2tag[i] for i in idxs]
+        epoch_tags.append(tags)
     
-    return epoch_tag_preds, epoch_tag_trues
-
+    return epoch_tags
 
 #%%
 from seqeval.metrics import f1_score, recall_score, precision_score, accuracy_score
@@ -52,7 +62,8 @@ def scores(epoch_tag_trues, epoch_tag_preds):
     rec = recall_score(epoch_tag_trues, epoch_tag_preds)
     prec = precision_score(epoch_tag_trues, epoch_tag_preds)
     acc = accuracy_score(epoch_tag_trues, epoch_tag_preds)
-    return {"f1": np.aounrd(f1, 4), 
-            "rec": np.aounrd(rec, 4),  
-            "prec": np.aounrd(prec, 4), 
-            "acc": np.aounrd(acc, 4)}
+    return {"f1": np.around(f1, 4), 
+            "rec": np.around(rec, 4),  
+            "prec": np.around(prec, 4), 
+            "acc": np.around(acc, 4)}
+
