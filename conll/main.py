@@ -80,9 +80,9 @@ train_seqs, train_tags = vectorizer(train_data, word2idx, tag2idx)
 valid_seqs, valid_tags = vectorizer(valid_data, word2idx, tag2idx)
 test_seqs, test_tags = vectorizer(test_data, word2idx, tag2idx)
 
-train_seqs, train_tags = train_seqs[:1000], train_tags[:1000]
-valid_seqs, valid_tags = valid_seqs[:100], valid_tags[:100]
-test_seqs, test_tags = test_seqs[:100], test_tags[:100]
+# train_seqs, train_tags = train_seqs[:1000], train_tags[:1000]
+# valid_seqs, valid_tags = valid_seqs[:100], valid_tags[:100]
+# test_seqs, test_tags = test_seqs[:100], test_tags[:100]
 
 #%% Load embeddings
 # Loading glove embeddings
@@ -147,7 +147,7 @@ train_loss = tf.keras.metrics.Mean(name='train_loss')
 valid_loss = tf.keras.metrics.Mean(name='valid_loss')
 
 #%%
-# @tf.function
+@tf.function(experimental_relax_shapes=True)  # Passing tensors with different shapes - need to relax shapes to avoid unnecessary retracing
 def train_fn(model, batch_seq, batch_tag):
     with tf.GradientTape() as tape:
         logits = model(batch_seq, training=True)  # [batch_size, seq_len, output_dim]
@@ -162,7 +162,7 @@ def train_fn(model, batch_seq, batch_tag):
     
     return preds
 
-# @tf.function
+@tf.function(experimental_relax_shapes=True)  # Relax argument shapes to avoid unnecessary retracing
 def valid_fn(model, batch_seq, batch_tag):
     logits = model(batch_seq)
     batch_loss = loss_fn(batch_tag, logits)
