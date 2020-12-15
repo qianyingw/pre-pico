@@ -27,6 +27,7 @@ def tagtog2conll(tsv_path, write2tsv=False):
     '''
     # Read single annotation tsv
     df = pd.read_csv(tsv_path, sep='\t', header=None, names=['seg', 'tag'])
+    df['tag'] = df['tag'].fillna('O')
     tokens, tags = [], []
     for _, row in df.iterrows():
         seg, tag = row['seg'], row['tag']
@@ -57,6 +58,10 @@ def tagtog2conll(tsv_path, write2tsv=False):
     return tokens, tags
                     
 #%%
+# import os
+# os.chdir('/home/qwang/bioner')
 tsv_path = "tagtog/PMID22244441.tsv"
 tokens, tags = tagtog2conll(tsv_path)                   
-                
+
+tsv_path = "tagtog/PMC5464763_tiab.tsv"
+tokens, tags = tagtog2conll(tsv_path, write2tsv=True) 
