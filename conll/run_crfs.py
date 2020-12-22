@@ -19,7 +19,7 @@ from tqdm import tqdm
 from arg_parser import get_args
 from data_helper import DataBatch
 import utils
-from model import BiLSTM_CRF
+from model import CRF, BiLSTM_CRF
 
 #%% Load data
 args = get_args()
@@ -48,12 +48,19 @@ embed_mat = helper.load_embed(args.embed_path, args.embed_dim)
 vocab_size = len(word2idx)
 if args.max_vocab_size:
     vocab_size = args.max_vocab_size
-                 
-model = BiLSTM_CRF(vocab_size = vocab_size,
-                   embed_dim = args.embed_dim,
-                   hidden_dim = args.hidden_dim,
-                   num_tags = len(tag2idx),
-                   embed_matrix = embed_mat)
+
+if args.model == 'crf':
+    model = CRF(vocab_size = vocab_size,
+                embed_dim = args.embed_dim,
+                num_tags = len(tag2idx),
+                embed_matrix = embed_mat)
+    
+if args.model == 'lstm_crf':               
+    model = BiLSTM_CRF(vocab_size = vocab_size,
+                       embed_dim = args.embed_dim,
+                       hidden_dim = args.hidden_dim,
+                       num_tags = len(tag2idx),
+                       embed_matrix = embed_mat)
 
     
 optimizer = tf.keras.optimizers.Adam(learning_rate = args.lr) 
@@ -95,10 +102,10 @@ for epoch in tf.range(1, args.epochs+1):
     epoch_batch_preds, epoch_batch_trues = [], []
     with tqdm(total = n_train_batches) as progress_bar:
         for batch_seq, batch_tag in train_batches:
-            logits = train_fn(model, optimizer, train_loss, batch_seq, batch_tag)  # [batch_size, seq_len]
+            logits = train_fn(model, optimizer, train_loss, batch_seq, batch_tag)  # [batch_size, seq_len, num_tags]
             
             preds =[]
-            for logit in logits:  
+            for logit in logits:  # logit: [seq_len, num_tags]   
                 viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # [seq_len], list of integers containing the highest scoring tag indices      
                 # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # [text_len]
                 preds.append(viterbi)
@@ -118,12 +125,12 @@ for epoch in tf.range(1, args.epochs+1):
     epoch_batch_preds, epoch_batch_trues = [], []
     with tqdm(total = n_valid_batches) as progress_bar:
         for batch_seq, batch_tag in valid_batches:
-            logits = valid_fn(model, valid_loss, batch_seq, batch_tag)
+            logits = valid_fn(model, valid_loss, batch_seq, batch_tag)    # [batch_size, seq_len, num_tags]
             
             preds =[]
-            for logit in logits:        
-                viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # [seq_len]      
-                # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # [text_len]
+            for logit in logits:  # logit: [seq_len, num_tags]    
+                viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # viterbi: [seq_len]      
+                # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # viterbi: [text_len]
                 preds.append(viterbi)
                 
             preds = tf.convert_to_tensor(preds, dtype = tf.int32)  # [batch_size, seq_len]    
