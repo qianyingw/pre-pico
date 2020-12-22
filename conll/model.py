@@ -34,7 +34,46 @@ class BiLSTM(tf.keras.Model):
         # probs = self.softmax(probs)  # [batch_size, seq_len, num_tags]
         
         return probs
+
+#%% 
+class CRF(tf.keras.Model):
     
+    def __init__(self, vocab_size, embed_dim, num_tags, embed_matrix):
+        super(CRF, self).__init__()
+        
+        self.embed = layers.Embedding(input_dim = vocab_size, output_dim = embed_dim, trainable=True,
+                                      embeddings_initializer = tf.keras.initializers.Constant(embed_matrix))
+        
+        self.dropout = layers.Dropout(rate = 0.5)
+        self.fc = layers.Dense(units = num_tags)
+        
+        self.trans_pars = tf.Variable(tf.random.uniform(shape = (num_tags, num_tags)))
+
+    def call(self, text, tags=None, training=None):
+        '''
+            text: [batch_size, seq_len]
+            tags: [batch_size, seq_len]
+        '''
+        
+        non_zeros = tf.cast(tf.math.not_equal(text, 0), dtype=tf.int32)  # [batch_size, seq_len]
+        text_lens = tf.math.reduce_sum(non_zeros, axis=1)  # [batch_size]
+        
+        out_embed = self.embed(text)  # [batch_sizem seq_len, embed_dim]
+        out_dp = self.dropout(out_embed, training)  # [batch_sizem seq_len, embed_dim]
+        probs = self.fc(out_dp)  # [batch_size, seq_len, num_tags]
+        
+    
+        if tags is None:
+            return probs, text_lens
+        else:
+            log_likelihood, self.trans_pars = tfa.text.crf_log_likelihood(inputs = probs,  # [batch_size, seq_len, num_tags] 
+                                                                          tag_indices = tags,  # [batch_size, seq_len]
+                                                                          sequence_lengths = text_lens,  # [batch_size]
+                                                                          transition_params = self.trans_pars)  # [num_tags, num_tags]
+        
+            return probs, text_lens, log_likelihood  # log_likelihood: [batch_size]
+        
+        
 #%% 
 class BiLSTM_CRF(tf.keras.Model):
     
@@ -50,7 +89,7 @@ class BiLSTM_CRF(tf.keras.Model):
         
         self.trans_pars = tf.Variable(tf.random.uniform(shape = (num_tags, num_tags)))
 
-    def call(self, text, tags, training=None):
+    def call(self, text, tags=None, training=None):
         '''
             text: [batch_size, seq_len]
             tags: [batch_size, seq_len]
@@ -74,4 +113,4 @@ class BiLSTM_CRF(tf.keras.Model):
                                                                           transition_params = self.trans_pars)  # [num_tags, num_tags]
         
             return probs, text_lens, log_likelihood  # log_likelihood: [batch_size]
-    
+
