@@ -46,7 +46,6 @@ word2idx, idx2word = helper.word2idx, helper.idx2word
 # Load embedding
 embed_mat = helper.load_embed(args.embed_path, args.embed_dim)
 
-                               
 #%% Define model, optimizer, loss   
 vocab_size = len(word2idx)
 if args.max_vocab_size:
