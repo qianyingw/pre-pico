@@ -173,7 +173,15 @@ def cls_report(batches, wgt_file, cls_file):
     model.load_weights(os.path.join(args.exp_dir, wgt_file))
     epoch_batch_preds, epoch_batch_trues = [], []
     for batch_seq, batch_tag in batches:
-        preds = valid_fn(model, batch_seq, batch_tag)
+        logits = valid_fn(model, valid_loss, batch_seq, batch_tag)    # [batch_size, seq_len, num_tags]
+            
+        preds =[]
+        for logit in logits:  # logit: [seq_len, num_tags]    
+            viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # viterbi: [seq_len]      
+            # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # viterbi: [text_len]
+            preds.append(viterbi)           
+        preds = tf.convert_to_tensor(preds, dtype = tf.int32)  # [batch_size, seq_len]   
+            
         epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
         epoch_batch_trues.append(batch_tag)  
 
