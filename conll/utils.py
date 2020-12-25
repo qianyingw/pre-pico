@@ -6,30 +6,41 @@ Created on Fri Dec 11 13:29:25 2020
 @author: qwang
 """
 
+import re
 import numpy as np
 import tensorflow as tf
+from pathlib import Path
 
 #%% Load conll data
 def load_conll(filename):
-    f = open(filename)
-    split_labeled_text = []
-    sentence = []
-    for line in f:
-        if len(line)==0 or line.startswith('-DOCSTART') or line[0]=="\n":
-            if len(sentence) > 0:
-                split_labeled_text.append(sentence)
-                sentence = []
-            continue
-        splits = line.split(' ')
-        sentence.append([splits[0],splits[-1].rstrip("\n")])
-    
-    if len(sentence) > 0:
-        split_labeled_text.append(sentence)
-        sentence = []
-    
-    return split_labeled_text
+    '''
+    tokens_seqs : list. Each element is a list of tokens for one sequence/doc
+                  tokens_seqs[21] --> ['Leicestershire', '22', 'points', ',', 'Somerset', '4', '.']
+    tags_seqs : list. Each element is a list of tags for one sequence/doc
+                tags_seqs[21] --> ['B-ORG', 'O', 'O', 'O', 'B-ORG', 'O', 'O']
 
+    '''
+    
+    filename = Path(filename)
 
+    raw_text = filename.read_text().strip()
+    raw_seqs = re.split(r'\n\t?\n', raw_text)
+    raw_seqs = [seq for seq in raw_seqs if '-DOCSTART' not in seq]
+
+    tokens_seqs, tags_seqs = [], []
+   
+    for raw_seq in raw_seqs:
+        seq = raw_seq.split('\n')
+        tokens, tags = [], []
+        for line in seq:
+            splits = line.split(' ')
+            tokens.append(splits[0])
+            tags.append(splits[-1].rstrip("\n"))
+        tokens_seqs.append(tokens)
+        tags_seqs.append(tags)
+    
+    return [tokens_seqs, tags_seqs]
+    
 #%%
 def epoch_idx2tag(epoch_batch_idxs, idx2tag):
     '''
