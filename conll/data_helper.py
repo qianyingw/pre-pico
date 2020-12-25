@@ -10,71 +10,78 @@ import tensorflow as tf
 
 #%%
 class DataBatch():
-    '''train_data: data list with length=train_size
-        Each element is a list of lists ([word, tag]) with length=seq_len, refers to one text
-        Eg: train_data[i] refers 
-                [['EU', 'B-ORG'],
-                 ['rejects', 'O'],
-                 ['German', 'B-MISC'],
-                 ['call', 'O'],
-                 ['.', 'O']]
-        
     '''
-    def __init__(self, train_data, valid_data, test_data):
-        self.train_data = train_data
-        self.valid_data = valid_data
-        self.test_data = test_data
+        train_data = [train_seqs, train_tags]
+            Element in train_seqs is a list of tokens for one text
+            Element in train_tags is a list of tags for one text
+            Eg: train_seqs[i] --> ['Leicestershire', '22', 'points', ',', 'Somerset', '4', '.']
+                tags_seqs[i] --> ['B-ORG', 'O', 'O', 'O', 'B-ORG', 'O', 'O']        
+    '''
+    
+    def __init__(self, train_data, valid_data, test_data=None):
         
+        self.train_seqs, self.train_tags = train_data[0], train_data[1]
+        self.valid_seqs, self.valid_tags = valid_data[0], valid_data[1]
+        if test_data:
+            self.test_seqs, self.tests_tags = test_data[0], test_data[1]
+                     
 
     def build_vocab(self):
         ''' Obtain tag2idx, idx2tag, word2idx, idx2word (dictionaries) 
         '''
-        word_set, tag_set = set(), set()
-        for data in [self.train_data, self.valid_data]:  # [self.train_data, self.valid_data, self.test_data]
-            for sent in data:
-                for pair in sent:
-                    word_set.add(pair[0])  # word_set.add(pair[0].lower())
-                    tag_set.add(pair[1])
         
+        # Get unique tags from train/valid tags
+        all_tags = self.train_tags + self.valid_tags
+        all_tags = [tag for sample in all_tags for tag in sample]
+        tag_set = set(all_tags)
         # Create mapping for tags
-        tag_sorted = sorted(list(tag_set), key=len)  # Sort set to ensure '0' is assigned to 0
-        tag2idx = {}
-        for tag in tag_sorted:
-            tag2idx[tag] = len(tag2idx)  
-        self.idx2tag = {v: k for k, v in tag2idx.items()}      
-        self.tag2idx = tag2idx
-        
+        tag_sorted = sorted(list(tag_set), key=len)  # Sort set to ensure '0' is assigned to 0        
+        self.tag2idx = {tag: idx for idx, tag in enumerate(tag_sorted)}
+        self.idx2tag = {idx: tag for tag, idx in self.tag2idx.items()}
+    
+   
+        # Get unique words from train/valid seqs
+        all_words = self.train_seqs + self.valid_seqs
+        all_words = [word for sample in all_words for word in sample]
+        word_set = set(all_words)
         # Create mapping for tokens
-        word2idx = {}
-        word2idx["<pad>"] = 0
-        word2idx["<unk>"] = 1
-        for word in word_set:
-            word2idx[word] = len(word2idx)
-        self.idx2word = {v: k for k, v in word2idx.items()}
-        self.word2idx = word2idx
+        self.word2idx = {word: idx+2 for idx, word in enumerate(word_set)}
+        self.word2idx["<pad>"] = 0
+        self.word2idx["<unk>"] = 1
+        self.idx2word = {idx: word for word, idx in self.word2idx.items()}
 
 
-    def vectorizer(self, sub_data):
-        ''' sub_data: train_data / valid_data / test_data
+    def vectorizer(self, seqs, tags):
         '''
-        sents = []
-        tags = []
-        for sent in sub_data:
-            word_idxs, tag_idxs = [], []
-            for w, t in sent:
+            seqs: list. Element is a list of tokens for one record
+            tags: list. Element is a list of tags for one record
+            Return: 
+                seqs_vec (tags_vec) with same shape as seqs (tags)
+                Element is a list of indexs for tokens (tags) in one record
+        '''
+        # Tokens vectorization
+        seqs_vec = []
+        for seq in seqs:
+            word_idxs = []
+            for w in seq:
                 if w in self.word2idx:
                     w_idx = self.word2idx[w]
                 elif w.lower() in self.word2idx:
                     w_idx = self.word2idx[w.lower()]
                 else:
                     w_idx = self.word2idx['<unk>']
-                    
                 word_idxs.append(w_idx)
-                tag_idxs.append(self.tag2idx[t])
-                
-            sents.append(word_idxs)
-            tags.append(tag_idxs)      
-        return sents, tags
+            seqs_vec.append(word_idxs)
+        
+        # Tags vectorization
+        tags_vec = []
+        for tags_one_record in tags:
+            tag_idxs = []
+            for tag in tags_one_record:
+                tag_idxs.append(self.tag2idx[tag])
+            tags_vec.append(tag_idxs)
+        
+        return seqs_vec, tags_vec
 
 
     def load_embed(self, embed_path, embed_dim):
@@ -95,30 +102,29 @@ class DataBatch():
                 embed_mat[idx] = vec      
         return embed_mat
     
-    
-    
+     
     def tf_pipe(self, seed, batch_size):
         ''' tf data pipeline'''
         self.build_vocab()
         
-        train_seqs, train_tags = self.vectorizer(self.train_data)
-        valid_seqs, valid_tags = self.vectorizer(self.valid_data)
-        test_seqs, test_tags = self.vectorizer(self.test_data)
+        train_seqs_vec, train_tags_vec = self.vectorizer(self.train_seqs, self.train_tags)
+        valid_seqs_vec, valid_tags_vec = self.vectorizer(self.valid_seqs, self.valid_tags)
+        test_seqs_vec, test_tags_vec = self.vectorizer(self.test_seqs, self.tests_tags)
         
         ###### test only ######
-        train_seqs, train_tags = train_seqs[:1000], train_tags[:1000]
-        valid_seqs, valid_tags = valid_seqs[:100], valid_tags[:100]
-        test_seqs, test_tags = test_seqs[:100], test_tags[:100]
-        ####################### 
-        
+        train_seqs_vec, train_tags_vec = train_seqs_vec[:1000], train_tags_vec[:1000]
+        valid_seqs_vec, valid_tags_vec = valid_seqs_vec[:100], valid_tags_vec[:100]
+        # self.valid_seqs_vec, self.valid_tags_vec = valid_seqs_vec, valid_tags_vec
+        #######################         
+         
         # Create dataset
-        train_ds = tf.data.Dataset.from_generator(lambda: iter(zip(train_seqs, train_tags)), output_types=(tf.int32, tf.int32))
-        valid_ds = tf.data.Dataset.from_generator(lambda: iter(zip(valid_seqs, valid_tags)), output_types=(tf.int32, tf.int32))
-        test_ds = tf.data.Dataset.from_generator(lambda: iter(zip(test_seqs, test_tags)), output_types=(tf.int32, tf.int32))   
+        train_ds = tf.data.Dataset.from_generator(lambda: iter(zip(train_seqs_vec, train_tags_vec)), output_types=(tf.int32, tf.int32))
+        valid_ds = tf.data.Dataset.from_generator(lambda: iter(zip(valid_seqs_vec, valid_tags_vec)), output_types=(tf.int32, tf.int32))
+        test_ds = tf.data.Dataset.from_generator(lambda: iter(zip(test_seqs_vec, test_tags_vec)), output_types=(tf.int32, tf.int32))   
         
         # Shuffle train/valid data only   
-        train_ds = train_ds.shuffle(buffer_size = len(train_seqs), seed = seed, reshuffle_each_iteration=True)
-        valid_ds = valid_ds.shuffle(buffer_size = len(valid_seqs), seed = seed, reshuffle_each_iteration=True)
+        train_ds = train_ds.shuffle(buffer_size = len(train_seqs_vec), seed = seed, reshuffle_each_iteration=True)
+        valid_ds = valid_ds.shuffle(buffer_size = len(valid_seqs_vec), seed = seed, reshuffle_each_iteration=True)
         
         # Pad within batch
         # Components of nested elements (i.e. sents, tags) are padded independently ==>> padded_shapes=([None], [None])
@@ -142,5 +148,9 @@ class DataBatch():
 
 # helper = DataBatch(train_data, valid_data, test_data)
 # train_batches, valid_batches, test_batches = helper.tf_pipe(args.seed, args.batch_size)
+
 # embed_path = '/home/qwang/bioner/conll/data/glove.6B.100d.txt'
 # embed_mat = helper.load_embed(args.embed_path, args.embed_dim)
+
+# valid_seqs_vec = helper.valid_seqs_vec
+# valid_tags_vec = helper.valid_tags_vec
