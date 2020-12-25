@@ -27,10 +27,12 @@ train_data = utils.load_conll(os.path.join(args.data_dir, "train.txt"))
 valid_data = utils.load_conll(os.path.join(args.data_dir, "valid.txt"))
 test_data = utils.load_conll(os.path.join(args.data_dir, "test.txt"))
 
-# idx_seq = 6
+# idx_seq = 66
 # idx_token_in_seq = 0
-# train_data[idx_seq]
-# train_data[idx_seq][idx_token_in_seq]
+# train_seqs, train_tags = train_data[0], train_data[1]
+# train_seqs[idx_seq]
+# train_seqs[idx_seq][idx_token_in_seq]
+
 
 #%%  
 # Obtain batches
