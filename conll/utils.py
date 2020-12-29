@@ -42,25 +42,18 @@ def load_conll(filename):
     return [tokens_seqs, tags_seqs]
     
 #%%
-def epoch_idx2tag(epoch_batch_idxs, idx2tag):
+def epoch_idx2tag(epoch_sample_idxs, idx2tag):
     '''
-        Flatten list of batch tensors with shape [batch_size, seq_len]
-        Convert each batch tensor to ndarray, then to list
-        append idxs of each sample to epoch_idxs
+        epoch_sample_idxs: list of tag lists with its true seq_len
+                           len(epoch_sample_idxs) = n_samples
+                           len(epoch_sample_idxs[0]) = true seq_len (varies among samples) 
+
         Convert epoch_idxs to epoch_tags      
     '''
-    
-    epoch_idxs = []
-    # Flatten list of batch tensors
-    for batch_idxs in epoch_batch_idxs:
-        # Convert each batch tensor to ndarray, then to list
-        batch_idxs = tf.make_ndarray(tf.make_tensor_proto(batch_idxs)).tolist()  # len(batch_idxs) = batch_size, len(batch_idxs[0]) = seq_len (same within batch)
-        for sample_idxs in batch_idxs:
-            epoch_idxs.append(sample_idxs) # len(epoch_idxs) = n_samples, len(epoch_idxs[0]) = seq_len (varies among samples)  
-
+        
     epoch_tags = []
     # idxs is list of index for a single text
-    for idxs in epoch_idxs:
+    for idxs in epoch_sample_idxs:
         tags = [idx2tag[i] for i in idxs]
         epoch_tags.append(tags)
     
@@ -68,13 +61,20 @@ def epoch_idx2tag(epoch_batch_idxs, idx2tag):
 
 #%%
 from seqeval.metrics import f1_score, recall_score, precision_score, accuracy_score
-def scores(epoch_tag_trues, epoch_tag_preds):
-    f1 = f1_score(epoch_tag_trues, epoch_tag_preds)
-    rec = recall_score(epoch_tag_trues, epoch_tag_preds)
-    prec = precision_score(epoch_tag_trues, epoch_tag_preds)
-    acc = accuracy_score(epoch_tag_trues, epoch_tag_preds)
+def scores(epoch_trues, epoch_preds):
+            
+    f1 = f1_score(epoch_trues, epoch_preds)
+    rec = recall_score(epoch_trues, epoch_preds)
+    prec = precision_score(epoch_trues, epoch_preds)
+    acc = accuracy_score(epoch_trues, epoch_preds)
+    
     return {"f1": np.around(f1, 4), 
             "rec": np.around(rec, 4),  
             "prec": np.around(prec, 4), 
             "acc": np.around(acc, 4)}
+    
+    # return {"f1": f1, # np.around(f1, 4), 
+    #         "rec": rec, #np.around(rec, 4),  
+    #         "prec": prec, #np.around(prec, 4), 
+    #         "acc": acc} #np.around(acc, 4)}
 
