@@ -9,6 +9,7 @@ Created on Fri Dec 11 13:25:23 2020
 import tensorflow as tf
 from tensorflow.keras import layers
 import tensorflow_addons as tfa
+from transformers import BertConfig, TFBertModel, TFBertPreTrainedModel
 
 #%%
 class BiLSTM(tf.keras.Model):
@@ -28,12 +29,15 @@ class BiLSTM(tf.keras.Model):
         '''
             text: [batch_size, seq_len]
         '''
+        non_zeros = tf.cast(tf.math.not_equal(text, 0), dtype=tf.int32)  # [batch_size, seq_len]
+        text_lens = tf.math.reduce_sum(non_zeros, axis=1)  # [batch_size]
+        
         out_embed = self.embed(text)  # [batch_size, seq_len, embed_dim]
         out_lstm = self.bilstm(out_embed)  # [batch_size, seq_len, hidden_dim*2]
         probs = self.fc(out_lstm)  # [batch_size, seq_len, num_tags]
         # probs = self.softmax(probs)  # [batch_size, seq_len, num_tags]
         
-        return probs
+        return probs, text_lens
 
 #%% 
 class CRF(tf.keras.Model):
@@ -58,8 +62,8 @@ class CRF(tf.keras.Model):
         non_zeros = tf.cast(tf.math.not_equal(text, 0), dtype=tf.int32)  # [batch_size, seq_len]
         text_lens = tf.math.reduce_sum(non_zeros, axis=1)  # [batch_size]
         
-        out_embed = self.embed(text)  # [batch_sizem seq_len, embed_dim]
-        out_dp = self.dropout(out_embed, training)  # [batch_sizem seq_len, embed_dim]
+        out_embed = self.embed(text)  # [batch_size, seq_len, embed_dim]
+        out_dp = self.dropout(out_embed, training)  # [batch_size, seq_len, embed_dim]
         probs = self.fc(out_dp)  # [batch_size, seq_len, num_tags]
         
     
@@ -98,8 +102,8 @@ class BiLSTM_CRF(tf.keras.Model):
         non_zeros = tf.cast(tf.math.not_equal(text, 0), dtype=tf.int32)  # [batch_size, seq_len]
         text_lens = tf.math.reduce_sum(non_zeros, axis=1)  # [batch_size]
         
-        out_embed = self.embed(text)  # [batch_sizem seq_len, embed_dim]
-        out_dp = self.dropout(out_embed, training)  # [batch_sizem seq_len, embed_dim]
+        out_embed = self.embed(text)  # [batch_size, seq_len, embed_dim]
+        out_dp = self.dropout(out_embed, training)  # [batch_size, seq_len, embed_dim]
         out_lstm = self.bilstm(out_dp)  # [batch_size, seq_len, hidden_dim*2]
         probs = self.fc(out_lstm)  # [batch_size, seq_len, num_tags]
         
@@ -113,4 +117,3 @@ class BiLSTM_CRF(tf.keras.Model):
                                                                           transition_params = self.trans_pars)  # [num_tags, num_tags]
         
             return probs, text_lens, log_likelihood  # log_likelihood: [batch_size]
-
