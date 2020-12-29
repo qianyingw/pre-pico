@@ -12,7 +12,6 @@ os.chdir("/home/qwang/bioner/conll")
 
 import tensorflow as tf
 import tensorflow_addons as tfa
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -67,7 +66,6 @@ if args.model == 'lstm_crf':
 optimizer = tf.keras.optimizers.Adam(learning_rate = args.lr) 
 # loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)  # Set "from_logits=True" may be more numerically stable
 
-
 #%%
 @tf.function(experimental_relax_shapes=True)  # Passing tensors with different shapes - need to relax shapes to avoid unnecessary retracing
 def train_fn(model, optimizer, train_loss, batch_seq, batch_tag):
@@ -79,7 +77,7 @@ def train_fn(model, optimizer, train_loss, batch_seq, batch_tag):
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
     train_loss.update_state(batch_loss)
     
-    return logits
+    return logits, text_lens
 
 
 @tf.function(experimental_relax_shapes=True)  # Relax argument shapes to avoid unnecessary retracing
@@ -88,7 +86,7 @@ def valid_fn(model, valid_loss, batch_seq, batch_tag):
     batch_loss = - tf.reduce_mean(log_likelihood)
     valid_loss.update_state(batch_loss)
 
-    return logits
+    return logits, text_lens
 
 #%% Run
 train_loss = tf.keras.metrics.Mean(name='train_loss')
@@ -100,49 +98,50 @@ n_valid_batches = len(list(valid_batches))
 for epoch in tf.range(1, args.epochs+1):
     
     ### Train ###
-    epoch_batch_preds, epoch_batch_trues = [], []
+    epoch_preds, epoch_trues = [], []
     with tqdm(total = n_train_batches) as progress_bar:
         for batch_seq, batch_tag in train_batches:
-            logits = train_fn(model, optimizer, train_loss, batch_seq, batch_tag)  # [batch_size, seq_len, num_tags]
+            logits, text_lens = train_fn(model, optimizer, train_loss, batch_seq, batch_tag)  # [batch_size, seq_len, num_tags]
             
-            preds =[]
-            for logit in logits:  # logit: [seq_len, num_tags]   
-                viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # [seq_len], list of integers containing the highest scoring tag indices      
-                # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # [text_len]
-                preds.append(viterbi)
-            preds = tf.convert_to_tensor(preds, dtype = tf.int32)  # [batch_size, seq_len]
-    
-            epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
-            epoch_batch_trues.append(batch_tag)                    
+            for logit, text_len in zip(logits, text_lens):  # logit: [seq_len, num_tags]   
+                # viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # [seq_len], list of integers containing the highest scoring tag indices      
+                viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.trans_pars)  # [text_len]
+                viterbi = tf.make_ndarray(tf.make_tensor_proto(viterbi)).tolist()   # convert tensor to list                
+                epoch_preds.append(viterbi)
+                
+            for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
+                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+                epoch_trues.append(tag_cut)
+                
             progress_bar.update(1)
             
     # Convert epoch_idxs to epoch_tags
-    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
-    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)
     # Calculate metrics for whole epoch
     train_scores = utils.scores(epoch_tag_trues, epoch_tag_preds)    
     
     ### Valid ###
-    epoch_batch_preds, epoch_batch_trues = [], []
+    epoch_preds, epoch_trues = [], []
     with tqdm(total = n_valid_batches) as progress_bar:
         for batch_seq, batch_tag in valid_batches:
-            logits = valid_fn(model, valid_loss, batch_seq, batch_tag)    # [batch_size, seq_len, num_tags]
+            logits, text_lens = valid_fn(model, valid_loss, batch_seq, batch_tag)    # [batch_size, seq_len, num_tags]
             
-            preds =[]
-            for logit in logits:  # logit: [seq_len, num_tags]    
-                viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # viterbi: [seq_len]      
-                # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # viterbi: [text_len]
-                preds.append(viterbi)
-                
-            preds = tf.convert_to_tensor(preds, dtype = tf.int32)  # [batch_size, seq_len]    
-            
-            epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
-            epoch_batch_trues.append(batch_tag)                    
+            for logit, text_len in zip(logits, text_lens):  # logit: [seq_len, num_tags]    
+                # viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # viterbi: [seq_len]      
+                viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.trans_pars)  # viterbi: [text_len]
+                viterbi = tf.make_ndarray(tf.make_tensor_proto(viterbi)).tolist()   # convert tensor to list                
+                epoch_preds.append(viterbi)
+                             
+            for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
+                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+                epoch_trues.append(tag_cut)
+                 
             progress_bar.update(1)
     
     # Convert epoch_idxs to epoch_tags
-    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
-    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)
     # Calculate metrics for whole epoch
     valid_scores = utils.scores(epoch_tag_trues, epoch_tag_preds)
      
@@ -171,22 +170,23 @@ model.save_weights(f"{args.exp_dir}/tf_model_wgts", save_format='tf')
 from seqeval.metrics import classification_report
 def cls_report(batches, wgt_file, cls_file):
     model.load_weights(os.path.join(args.exp_dir, wgt_file))
-    epoch_batch_preds, epoch_batch_trues = [], []
+    
+    epoch_preds, epoch_trues = [], []
     for batch_seq, batch_tag in batches:
-        logits = valid_fn(model, valid_loss, batch_seq, batch_tag)    # [batch_size, seq_len, num_tags]
+        logits, text_lens = valid_fn(model, valid_loss, batch_seq, batch_tag)    # [batch_size, seq_len, num_tags]
             
-        preds =[]
-        for logit in logits:  # logit: [seq_len, num_tags]    
-            viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # viterbi: [seq_len]      
-            # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # viterbi: [text_len]
-            preds.append(viterbi)           
-        preds = tf.convert_to_tensor(preds, dtype = tf.int32)  # [batch_size, seq_len]   
-            
-        epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
-        epoch_batch_trues.append(batch_tag)  
+        for logit, text_len in zip(logits, text_lens):  # logit: [seq_len, num_tags]    
+            # viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # viterbi: [seq_len]      
+            viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.trans_pars)  # viterbi: [text_len]
+            viterbi = tf.make_ndarray(tf.make_tensor_proto(viterbi)).tolist()   # convert tensor to list                
+            epoch_preds.append(viterbi)
+                             
+        for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
+            tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+            epoch_trues.append(tag_cut)  
 
-    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
-    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)
     
     print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False))
     report = classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=True)

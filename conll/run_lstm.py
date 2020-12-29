@@ -64,7 +64,7 @@ loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)  # Set
 @tf.function(experimental_relax_shapes=True)  # Passing tensors with different shapes - need to relax shapes to avoid unnecessary retracing
 def train_fn(model, optimizer, train_loss, batch_seq, batch_tag):
     with tf.GradientTape() as tape:
-        logits = model(batch_seq, training=True)  # [batch_size, seq_len, num_tags]
+        logits, text_lens = model(batch_seq, training=True)  # [batch_size, seq_len, num_tags]
         batch_loss = loss_fn(batch_tag, logits)
         
     grads = tape.gradient(batch_loss, model.trainable_variables)
@@ -74,18 +74,18 @@ def train_fn(model, optimizer, train_loss, batch_seq, batch_tag):
     probs = tf.nn.softmax(logits, axis=2)  # [batch_size, seq_len, num_tags]
     preds = tf.argmax(probs, axis=2)  # [batch_size, seq_len]
     
-    return preds
+    return preds, text_lens
 
 @tf.function(experimental_relax_shapes=True)  # Relax argument shapes to avoid unnecessary retracing
 def valid_fn(model, valid_loss, batch_seq, batch_tag):
-    logits = model(batch_seq)
+    logits, text_lens = model(batch_seq)
     batch_loss = loss_fn(batch_tag, logits)
     valid_loss.update_state(batch_loss)
     
     probs = tf.nn.softmax(logits, axis=2)  # [batch_size, seq_len, num_tags]
     preds = tf.argmax(probs, axis=2)  # [batch_size, seq_len]   
       
-    return preds
+    return preds, text_lens
 
 #%% Run
 train_loss = tf.keras.metrics.Mean(name='train_loss')
@@ -97,34 +97,48 @@ n_valid_batches = len(list(valid_batches))
 for epoch in tf.range(1, args.epochs+1):
     
     ### Train ###
-    epoch_batch_preds, epoch_batch_trues = [], []
+    epoch_preds, epoch_trues = [], []
     with tqdm(total = n_train_batches) as progress_bar:
         for batch_seq, batch_tag in train_batches:
-            preds = train_fn(model, optimizer, train_loss, batch_seq, batch_tag)  # [batch_size, seq_len]
+            preds, text_lens = train_fn(model, optimizer, train_loss, batch_seq, batch_tag)  # [batch_size, seq_len]
             
-            epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
-            epoch_batch_trues.append(batch_tag)                    
+            # Unpad preds/tags to the real lengths (for metrics)
+            for pred, text_len in zip(preds, text_lens):  # logit: [seq_len, num_tags]   
+                pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len])).tolist()   # convert tensor to list                
+                epoch_preds.append(pred_cut)
+                
+            for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
+                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+                epoch_trues.append(tag_cut)
+                              
             progress_bar.update(1)
             
     # Convert epoch_idxs to epoch_tags
-    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
-    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)
     # Calculate metrics for whole epoch
     train_scores = utils.scores(epoch_tag_trues, epoch_tag_preds)    
     
     ### Valid ###
-    epoch_batch_preds, epoch_batch_trues = [], []
+    epoch_preds, epoch_trues = [], []
     with tqdm(total = n_valid_batches) as progress_bar:
         for batch_seq, batch_tag in valid_batches:
-            preds = valid_fn(model, valid_loss, batch_seq, batch_tag)
+            preds, text_lens = valid_fn(model, valid_loss, batch_seq, batch_tag)
             
-            epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
-            epoch_batch_trues.append(batch_tag)                    
+            # Unpad preds/tags to the real lengths (for metrics)
+            for pred, text_len in zip(preds, text_lens):  # logit: [seq_len, num_tags]   
+                pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len])).tolist()   # convert tensor to list                
+                epoch_preds.append(pred_cut)
+                
+            for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
+                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+                epoch_trues.append(tag_cut)
+                
             progress_bar.update(1)
     
     # Convert epoch_idxs to epoch_tags
-    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
-    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)
     # Calculate metrics for whole epoch
     valid_scores = utils.scores(epoch_tag_trues, epoch_tag_preds)
      
@@ -153,14 +167,22 @@ model.save_weights(f"{args.exp_dir}/tf_model_wgts", save_format='tf')
 from seqeval.metrics import classification_report
 def cls_report(batches, wgt_file, cls_file):
     model.load_weights(os.path.join(args.exp_dir, wgt_file))
-    epoch_batch_preds, epoch_batch_trues = [], []
+    
+    epoch_preds, epoch_trues = [], []
     for batch_seq, batch_tag in batches:
-        preds = valid_fn(model, batch_seq, batch_tag)
-        epoch_batch_preds.append(preds)  # list of tensors with shape [batch_size, seq_len]
-        epoch_batch_trues.append(batch_tag)  
+        preds, text_lens = valid_fn(model, valid_loss, batch_seq, batch_tag)
+        
+        # Unpad preds/tags to the real lengths (for metrics)
+        for pred, text_len in zip(preds, text_lens):  # logit: [seq_len, num_tags]   
+            pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len])).tolist()   # convert tensor to list                
+            epoch_preds.append(pred_cut)
+            
+        for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
+            tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+            epoch_trues.append(tag_cut)
 
-    epoch_tag_preds = utils.epoch_idx2tag(epoch_batch_preds, idx2tag)
-    epoch_tag_trues = utils.epoch_idx2tag(epoch_batch_trues, idx2tag)
+    epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)
     
     print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False))
     report = classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=True)
