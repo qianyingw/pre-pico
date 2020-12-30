@@ -36,7 +36,7 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
 
             preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)  
 
-            loss = - log_likelihood                             
+            loss = -1 * log_likelihood                             
             batch_loss += loss.item() 
 
             loss = loss / accum_step  # loss gradients are accumulated by loss.backward() so we need to ave accumulated loss gradients
