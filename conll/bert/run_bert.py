@@ -23,7 +23,7 @@ from bert_utils import tokenize_encode, EncodingDataset, PadDoc
 
 import bert_fn
 import bert_crf_fn
-from bert_model import BERT_CRF, Distil_CRF
+from bert_model import BERT_CRF, BERT_LSTM_CRF, Distil_CRF
 
 #%% Load data
 args = get_args()
@@ -95,13 +95,15 @@ if args.model == 'bert':
     model = BertForTokenClassification.from_pretrained(pre_wgts, num_labels=n_tags) 
 if args.model == 'bert_crf':
     model = BERT_CRF.from_pretrained(pre_wgts, num_labels=n_tags)
+if args.model == 'bert_lstm_crf':
+    model = BERT_LSTM_CRF.from_pretrained(pre_wgts, num_labels=n_tags)
 if args.model == 'distil':
     model = DistilBertForTokenClassification.from_pretrained(pre_wgts, num_labels=n_tags)
 if args.model == 'distil_crf':
     model = Distil_CRF.from_pretrained(pre_wgts, num_labels=n_tags)
     
 model.to(device)
-optimizer = AdamW(model.parameters(), lr=5e-5)
+optimizer = AdamW(model.parameters(), lr=args.lr)
 
 # Slanted triangular Learning rate scheduler
 total_steps = len(train_loader) * args.epochs // args.accum_step
@@ -121,7 +123,7 @@ min_valid_loss = float('inf')
 max_valid_f1 = float('-inf')
 
 for epoch in range(args.epochs):  
-    if args.model in ['distil_crf', 'bert_crf']:
+    if args.model in ['distil_crf', 'bert_crf', 'bert_lstm_crf']:
         train_scores = bert_crf_fn.train_fn(model, train_loader, idx2tag, optimizer, scheduler, tokenizer, args.clip, args.accum_step, device)
         valid_scores = bert_crf_fn.valid_fn(model, valid_loader, idx2tag, tokenizer, device)
     if args.model in ['distil', 'bert']:
