@@ -61,6 +61,7 @@ def load_conll(filename):
 #     inputs.update({'tags': tags_upt})
 
 #     return inputs
+# https://github.com/huggingface/notebooks/blob/master/examples/token_classification.ipynb
 
 def tokenize_encode(seqs, tags, tag2idx, tokenizer, tag_all_tokens=True):
     inputs = tokenizer(seqs, is_split_into_words=True, return_offsets_mapping=True, padding=False, truncation=True)
