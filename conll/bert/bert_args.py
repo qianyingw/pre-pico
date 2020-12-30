@@ -48,8 +48,8 @@ def get_args():
     parser.add_argument('--embed_dim', nargs="?", type=int, default=100, help='Embedding dim')
     parser.add_argument('--hidden_dim', nargs="?", type=int, default=64, help='Dim of lstm hidden states')
     
-    parser.add_argument('--model', nargs="?", type=str, default='bert', 
-                        choices = ['bert', 'bert_crf', 'distil', 'distil_crf'], help='Models')
+    parser.add_argument('--model', nargs="?", type=str, default='bert_crf', 
+                        choices = ['bert', 'bert_crf', 'bert_lstm_crf', 'distil', 'distil_crf'], help='Models')
 
     args = parser.parse_args()
     
