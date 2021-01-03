@@ -31,6 +31,8 @@ train_data = bert_utils.load_conll(os.path.join(args.data_dir, "train.txt"))
 valid_data = bert_utils.load_conll(os.path.join(args.data_dir, "valid.txt"))
 test_data = bert_utils.load_conll(os.path.join(args.data_dir, "test.txt"))
 
+# train_seqs, train_tags = train_data[0], train_data[1]
+# valid_seqs, valid_tags = valid_data[0], valid_data[1]
 train_seqs, train_tags = train_data[0][:1000], train_data[1][:1000]
 valid_seqs, valid_tags = valid_data[0][:100], valid_data[1][:100]
 
