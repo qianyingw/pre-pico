@@ -12,6 +12,7 @@ from transformers import DistilBertPreTrainedModel, DistilBertConfig, DistilBert
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from torchcrf import CRF
 
 #%%
@@ -33,7 +34,7 @@ class BERT_CRF(BertPreTrainedModel):
                
         outputs = self.bert(input_ids, attention_mask)
         hidden_states = outputs[0]  # [batch_size, seq_len, hidden_size]
-        
+
         out_dp = self.dropout(hidden_states)
         emission_probs = self.fc(out_dp)  # [batch_size, seq_len, num_tags]
         
@@ -47,7 +48,7 @@ class BERT_CRF(BertPreTrainedModel):
             mask_cut.append(mask[tag!=-100])
             tags_cut.append(tag[tag!=-100])
         
-        probs_cut = torch.stack(probs_cut)  # [batch_size, seq_len-2]
+        probs_cut = torch.stack(probs_cut)  # [batch_size, seq_len-2, num_tags]
         mask_cut = torch.stack(mask_cut)   # [batch_size, seq_len-2]
         tags_cut = torch.stack(tags_cut)  # [batch_size, seq_len-2]
                      
@@ -57,9 +58,10 @@ class BERT_CRF(BertPreTrainedModel):
             return preds  # preds: list of list containing best tag seqs for each batch
         else:
             # log_likelihood = self.crf(probs_cut, tags_cut, mask=mask_cut)  # [batch_size]
-            log_likelihood = self.crf(F.softmax(probs_cut, dim=2), tags_cut, mask=mask_cut)  # [batch_size]
-            preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
-            return preds, log_likelihood
+            # log_likelihood = self.crf(F.softmax(probs_cut, dim=2), tags_cut, mask=mask_cut, reduction='mean')  
+            log_likelihood = self.crf(F.log_softmax(probs_cut, dim=2), tags_cut, mask=mask_cut, reduction='mean')  
+            # preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
+            return probs_cut, mask_cut, log_likelihood
 
 #%%
 class BERT_LSTM_CRF(BertPreTrainedModel):
