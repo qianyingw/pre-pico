@@ -50,19 +50,19 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
                 optimizer.zero_grad()
                    
             logits = outputs[1]  # [batch_size, seq_len, num_tags]
-            probs = F.softmax(logits, dim=2)  # [batch_size, seq_len, num_tags]
-            preds = torch.argmax(probs, dim=2)  # [batch_size, seq_len]            
+            # probs = F.softmax(logits, dim=2)  # [batch_size, seq_len, num_tags]
+            preds = torch.argmax(logits, dim=2)  # [batch_size, seq_len]            
             # Append preds/trues with real seq_lens (before padding) to epoch_samaple_preds/trues
             for p, t, l in zip(preds, tags, true_lens):
-                epoch_preds_unpad.append(p[1:l+1])  # p[:l].shape = l
-                epoch_trues_unpad.append(t[1:l+1])  # t[:l].shape = l             
+                epoch_preds_unpad.append(p[1:l+1].tolist())  # p[:l].shape = l
+                epoch_trues_unpad.append(t[1:l+1].tolist())  # t[:l].shape = l             
             progress_bar.update(1)
     
     # Remove ignored index (-100)
     epoch_preds_cut, epoch_trues_cut = [], []
     for preds, trues in zip(epoch_preds_unpad, epoch_trues_unpad):  # per sample       
-        preds_cut = [p.item() for (p, t) in zip(preds, trues) if t != -100]
-        trues_cut = [t.item() for (p, t) in zip(preds, trues) if t != -100] 
+        preds_cut = [p for (p, t) in zip(preds, trues) if t != -100]
+        trues_cut = [t for (p, t) in zip(preds, trues) if t != -100] 
           
         epoch_preds_cut.append(preds_cut)
         epoch_trues_cut.append(trues_cut)
@@ -101,19 +101,19 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
                 batch_loss += loss.item()       
                                
                 logits =  outputs[1]  # [batch_size, seq_len, num_tags]
-                probs = F.softmax(logits, dim=2)  # [batch_size, seq_len, num_tags]
-                preds = torch.argmax(probs, dim=2)  # [batch_size, seq_len]            
+                # probs = F.softmax(logits, dim=2)  # [batch_size, seq_len, num_tags]
+                preds = torch.argmax(logits, dim=2)  # [batch_size, seq_len]            
                 # Append preds/trues with real seq_lens (before padding) to epoch_samaple_preds/trues
                 for p, t, l in zip(preds, tags, true_lens):
-                    epoch_preds_unpad.append(p[1:l+1])  # p[:l].shape = l
-                    epoch_trues_unpad.append(t[1:l+1])  # t[:l].shape = l             
+                    epoch_preds_unpad.append(p[1:l+1].tolist())  # p[:l].shape = l
+                    epoch_trues_unpad.append(t[1:l+1].tolist())  # t[:l].shape = l             
                 progress_bar.update(1)                     
     
     # Remove ignored index (-100)
     epoch_preds_cut, epoch_trues_cut = [], []
     for preds, trues in zip(epoch_preds_unpad, epoch_trues_unpad):  # per sample
-        preds_cut = [p.item() for (p, t) in zip(preds, trues) if t != -100]
-        trues_cut = [t.item() for (p, t) in zip(preds, trues) if t != -100]
+        preds_cut = [p for (p, t) in zip(preds, trues) if t != -100]
+        trues_cut = [t for (p, t) in zip(preds, trues) if t != -100]
                
         epoch_preds_cut.append(preds_cut)
         epoch_trues_cut.append(trues_cut)
