@@ -16,6 +16,10 @@ import transformers
 
 import bert_utils
 
+
+from torchcrf import CRF
+crf = CRF(9, batch_first=True)
+
 #%% Train
 def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip, accum_step, device):
     
@@ -33,10 +37,12 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
             attn_mask = batch[1].to(device)  # [batch_size, seq_len]
             tags = batch[2].to(device)  # [batch_size, seq_len]
             true_lens = batch[3]  # [batch_size]
+        
+            # preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)  
+            probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
+            preds_cut = crf.decode(probs_cut, mask=mask_cut)
 
-            preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)  
-
-            loss = -1 * log_likelihood                             
+            loss = -1 * log_likelihood                          
             batch_loss += loss.item() 
 
             loss = loss / accum_step  # loss gradients are accumulated by loss.backward() so we need to ave accumulated loss gradients
@@ -81,10 +87,12 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
                 tags = batch[2].to(device)  # [batch_size, seq_len]
                 true_lens = batch[3]  # [batch_size]
     
-                preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)   
+                # preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)   
                 # preds: list of lists. each element is a tag seq with true_len (unpad & -100 removed) for one sample    
-                
-                loss = - log_likelihood
+                probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
+                preds_cut = crf.decode(probs_cut, mask=mask_cut)
+                        
+                loss = -1 * log_likelihood 
                 batch_loss += loss.item()       
                 
                 for p, t, l in zip(preds_cut, tags, true_lens):
