@@ -7,6 +7,7 @@ Created on Thu Feb 18 13:45:53 2021
 """
 
 import os
+os.chdir('/home/qwang/pre-pico')
 from tqdm import tqdm
 import pandas as pd
 
@@ -16,14 +17,15 @@ from torch.utils.data import DataLoader
 from transformers import BertTokenizerFast, BertForSequenceClassification
 from transformers import AdamW, get_linear_schedule_with_warmup
 
+import utils
+metrics_fn = utils.metrics_fn
 
-os.chdir('/home/qwang/pre-pico')
 NUM_EPOCHS = 10
 SEED = 1234
-PRE_WGTS = 'bert-base-uncased'
+# PRE_WGTS = 'bert-base-uncased'
 # PRE_WGTS = 'dmis-lab/biobert-v1.1'
 # PRE_WGTS = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract'
-# PRE_WGTS = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
+PRE_WGTS = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
 
 softmax = nn.Softmax(dim=1)
 
@@ -41,15 +43,12 @@ train_sents, train_labs = sents[: int(0.8*dlen)], labels[: int(0.8*dlen)]
 valid_sents, valid_labs = sents[int(0.8*dlen): int(0.9*dlen)], labels[int(0.8*dlen): int(0.9*dlen)] 
 test_sents, test_labs = sents[int(0.9*dlen):], labels[int(0.9*dlen):] 
 
-
-#%%
+#%% Tokenization 
 tokenizer = BertTokenizerFast.from_pretrained(PRE_WGTS)  
-
 train_encs = tokenizer(train_sents, truncation=True, padding=True)
 valid_encs = tokenizer(valid_sents, truncation=True, padding=True)
 test_encs = tokenizer(test_sents, truncation=True, padding=True)
 
-#%%
 class PICOSentDataset(torch.utils.data.Dataset):
     def __init__(self, encodings, labels):
         self.encodings = encodings
@@ -62,7 +61,8 @@ class PICOSentDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.labels)
-
+    
+# Dataset and Loader
 train_dataset = PICOSentDataset(train_encs, train_labs)
 valid_dataset = PICOSentDataset(valid_encs, valid_labs)
 test_dataset = PICOSentDataset(test_encs, test_labs)
@@ -81,33 +81,6 @@ optimizer = AdamW(model.parameters(), lr=5e-5)
 total_steps = len(train_loader) * NUM_EPOCHS // 4
 warm_steps = int(total_steps * 0.1)
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warm_steps, num_training_steps=total_steps)
-
-#%% Metric scores
-def metrics_fn(preds, y, th=0.5):
-    """ preds: torch tensor, [batch_size, output_dim]
-        y: torch tensor, [batch_size]
-    """   
-    if torch.cuda.device_count() == 1:
-        y_preds = (preds[:,1] > th).int().type(torch.LongTensor).cuda()
-    else:
-        y_preds = (preds[:,1] > th).int().type(torch.LongTensor)
-    ones = torch.ones_like(y_preds)
-    zeros = torch.zeros_like(y_preds)
-    
-    pos = torch.eq(y_preds, y).sum().item()
-    tp = (torch.eq(y_preds, ones) & torch.eq(y, ones)).sum().item()
-    tn = (torch.eq(y_preds, zeros) & torch.eq(y, zeros)).sum().item()
-    fp = (torch.eq(y_preds, ones) & torch.eq(y, zeros)).sum().item()
-    fn = (torch.eq(y_preds, zeros) & torch.eq(y, ones)).sum().item()
-    
-    assert pos == tp + tn
-    acc = pos / y.shape[0]  # torch.FloatTensor([y.shape[0]])
-    f1 = 2*tp / (2*tp + fp + fn) if (2*tp + fp + fn != 0) else 0
-    rec = tp / (tp + fn) if (tp + fn != 0) else 0
-    ppv = tp / (tp + fp) if (tp + fp != 0) else 0
-    spc = tn / (tn + fp) if (tn + fp != 0) else 0
-    
-    return {'accuracy': acc, 'f1': f1, 'recall': rec, 'precision': ppv, 'specificity': spc}
 
 #%%
 def train_fn(model, data_loader, clip=0.1, accum_step=4, threshold=0.5):
@@ -185,7 +158,7 @@ for epoch in range(NUM_EPOCHS):
     valid_scores = valid_fn(model, valid_loader)       
 
     print("\n\nEpoch {}/{}...".format(epoch+1, NUM_EPOCHS))                       
-    print('\n[Train] loss: {0:.3f} | acc: {1:.2f}% | f1: {2:.2f}% | rec: {3:.2f}% | prec: {4:.2f}% | spec: {5:.2f}%'.format(
+    print('\n[Train] loss: {0:.3f} | acc: {1:.2f} | f1: {2:.2f} | rec: {3:.2f} | prec: {4:.2f} | spec: {5:.2f}'.format(
             train_scores['loss'], train_scores['accuracy']*100, train_scores['f1']*100, train_scores['recall']*100, train_scores['precision']*100, train_scores['specificity']*100))
-    print('[Valid] loss: {0:.3f} | acc: {1:.2f}% | f1: {2:.2f}% | rec: {3:.2f}% | prec: {4:.2f}% | spec: {5:.2f}%\n'.format(
+    print('[Valid] loss: {0:.3f} | acc: {1:.2f} | f1: {2:.2f} | rec: {3:.2f} | prec: {4:.2f} | spec: {5:.2f}\n'.format(
         valid_scores['loss'], valid_scores['accuracy']*100, valid_scores['f1']*100, valid_scores['recall']*100, valid_scores['precision']*100, valid_scores['specificity']*100))
