@@ -8,11 +8,11 @@ Created on Fri Dec 11 13:30:20 2020
 
 
 import os
-os.chdir("/home/qwang/bioner/conll")
+os.chdir("/home/qwang/pre-pico")
 
 import tensorflow as tf
+import random
 # import tensorflow_addons as tfa
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -23,16 +23,29 @@ from model import BiLSTM
 
 #%% Load data
 args = get_args()
-train_data = utils.load_conll(os.path.join(args.data_dir, "train.txt"))
-valid_data = utils.load_conll(os.path.join(args.data_dir, "valid.txt"))
-test_data = utils.load_conll(os.path.join(args.data_dir, "test.txt"))
+random.seed(args.seed)
 
+# Load json file
+seqs, tags = utils.load_pico(os.path.join(args.data_dir, "tsv/output/b1.json"))
+# Shuffle
+dat = list(zip(seqs, tags))
+random.shuffle(dat)
+seqs = [tup[0] for tup in dat]
+tags = [tup[1] for tup in dat]
+# Split to train/valid/test
+dlen = len(dat)
+train_data = [seqs[: int(0.8*dlen)], tags[: int(0.8*dlen)]]
+valid_data = [seqs[int(0.8*dlen):int(0.9*dlen)], tags[int(0.8*dlen):int(0.9*dlen)]]
+test_data = [seqs[int(0.9*dlen):], tags[int(0.9*dlen):]]
+
+# train_data = utils.load_conll(os.path.join(args.data_dir, "train.txt"))
+# valid_data = utils.load_conll(os.path.join(args.data_dir, "valid.txt"))
+# test_data = utils.load_conll(os.path.join(args.data_dir, "test.txt"))
 # idx_seq = 66
 # idx_token_in_seq = 0
 # train_seqs, train_tags = train_data[0], train_data[1]
 # train_seqs[idx_seq]
 # train_seqs[idx_seq][idx_token_in_seq]
-
 
 #%%  
 # Obtain batches
