@@ -96,7 +96,8 @@ def sent_ent_counter(tokens, tags, pid):
         freq_ent = freq_int + freq_com + freq_out + freq_ind + freq_spe + freq_str
         freq_ent_tokens = len(s_tags) - count['O']
         
-        sent_list.append({'sid': pid + '_' + str(s_count),
+        sent_list.append({'pid': pid, 
+                          'sid': pid + '_' + str(s_count),
                           'sent': s_tokens, 'sent_tags': s_tags, 'freq_ent': freq_ent, 'freq_ent_tokens': freq_ent_tokens,
                           'freq_int': freq_int, 'freq_com': freq_com, 'freq_out': freq_out, 
                           'freq_ind': freq_ind, 'freq_spe': freq_spe, 'freq_str': freq_str})
@@ -108,8 +109,8 @@ def sent_ent_counter(tokens, tags, pid):
                     
 
 #%%
-in_dir = '/home/qwang/bioner/data/tagtog_tsv/b1'
-out_dir = '/home/qwang/bioner/data/tagtog_tsv/output'
+in_dir = '/home/qwang/pre-pico/data/tsv/b1'
+out_dir = '/home/qwang/pre-pico/data/tsv/output'
 
 sent_ls = []
 for file in os.listdir(in_dir):
@@ -133,6 +134,3 @@ for s in sent_ls:
 
 sent_df = pd.DataFrame(sent_df)
 sent_df.to_csv(os.path.join(out_dir, 'b1.csv'), sep=',', index=False)
-
-
-
