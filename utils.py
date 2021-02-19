@@ -7,10 +7,11 @@ Created on Fri Dec 11 13:29:25 2020
 """
 
 import re
+import json
 import numpy as np
 import torch
-import tensorflow as tf
 from pathlib import Path
+from itertools import groupby
 
 #%% Load conll data
 def load_conll(filename):
@@ -19,7 +20,6 @@ def load_conll(filename):
                   tokens_seqs[21] --> ['Leicestershire', '22', 'points', ',', 'Somerset', '4', '.']
     tags_seqs : list. Each element is a list of tags for one sequence/doc
                 tags_seqs[21] --> ['B-ORG', 'O', 'O', 'O', 'B-ORG', 'O', 'O']
-
     '''
     
     filename = Path(filename)
@@ -41,6 +41,35 @@ def load_conll(filename):
         tags_seqs.append(tags)
     
     return [tokens_seqs, tags_seqs]
+
+#%% Load pico json file
+def load_pico(json_path):
+    '''
+    tokens_seqs : list. Each element is a list of tokens for one abstract
+                  tokens_seqs[i] --> ['Infected', 'mice', 'that', ...]
+    tags_seqs : list. Each element is a list of tags for one abstract
+                tags_seqs[i] --> [''O', 'B-Species', 'O', ...]
+    '''
+    dat = [json.loads(line) for line in open(json_path, 'r')] 
+    dat.sort(key=lambda x: x['pid'])
+    
+    tokens_seqs, tags_seqs = [], []
+    # Group sents by pid
+    for k, v in groupby(dat, key=lambda x: x['pid']):
+        abs_sents = list(v)
+        abs_sents.sort(key=lambda x: x['sid'])
+        
+        # Concatenate sents from the same abtract
+        abs_tokens, abs_tags = [], []
+        for sent in abs_sents:
+            if sent['freq_ent'] > 0:  # remove sents without entities
+                abs_tokens += sent['sent']
+                abs_tags += sent['sent_tags']    
+        assert len(abs_tokens) == len(abs_tags)
+        
+        tokens_seqs.append(abs_tokens)
+        tags_seqs.append(abs_tags)
+    return tokens_seqs, tags_seqs
     
 #%%
 def epoch_idx2tag(epoch_sample_idxs, idx2tag):
