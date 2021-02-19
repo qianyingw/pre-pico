@@ -112,8 +112,8 @@ class DataBatch():
         test_seqs_vec, test_tags_vec = self.vectorizer(self.test_seqs, self.tests_tags)
         
         ###### test only ######
-        train_seqs_vec, train_tags_vec = train_seqs_vec[:1000], train_tags_vec[:1000]
-        valid_seqs_vec, valid_tags_vec = valid_seqs_vec[:100], valid_tags_vec[:100]
+        # train_seqs_vec, train_tags_vec = train_seqs_vec[:1000], train_tags_vec[:1000]
+        # valid_seqs_vec, valid_tags_vec = valid_seqs_vec[:100], valid_tags_vec[:100]
         # self.valid_seqs_vec, self.valid_tags_vec = valid_seqs_vec, valid_tags_vec
         #######################         
          
