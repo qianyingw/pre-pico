@@ -7,11 +7,13 @@ Created on Wed Dec 30 13:58:37 2020
 """
 
 import re
+import json
 import numpy as np
 from pathlib import Path
 
 import torch
 import torch.nn as nn
+
 
 #%% Load conll data
 def load_conll(filename):
@@ -42,6 +44,24 @@ def load_conll(filename):
         tags_seqs.append(tags)
     
     return [tokens_seqs, tags_seqs]
+
+#%% Load pico json file
+def load_pico(json_path, group='train'):
+    '''
+    tokens_seqs : list. Each element is a list of tokens for one abstract
+                  tokens_seqs[i] --> ['Infected', 'mice', 'that', ...]
+    tags_seqs : list. Each element is a list of tags for one abstract
+                tags_seqs[i] --> [''O', 'B-Species', 'O', ...]
+    '''
+    dat = [json.loads(line) for line in open(json_path, 'r')] 
+        
+    tokens_seqs, tags_seqs = [], []
+    for ls in dat:
+        if ls['group'] == group:
+              tokens_seqs.append(ls['sent'])
+              tags_seqs.append(ls['sent_tags'])
+    
+    return tokens_seqs, tags_seqs
     
 #%%
 # def tokenize_encode(seqs, tags, tag2idx, tokenizer):

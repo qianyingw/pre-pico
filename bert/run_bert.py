@@ -8,8 +8,9 @@ Created on Mon Dec 28 17:02:50 2020
 
 
 import os
-os.chdir("/home/qwang/bioner/conll/bert")
+os.chdir("/home/qwang/pre-pico/bert")
 
+import random
 import torch
 from torch.utils.data import DataLoader
 
@@ -27,14 +28,21 @@ from bert_model import BERT_CRF, BERT_LSTM_CRF, Distil_CRF
 
 #%% Load data
 args = get_args()
-train_data = bert_utils.load_conll(os.path.join(args.data_dir, "train.txt"))
-valid_data = bert_utils.load_conll(os.path.join(args.data_dir, "valid.txt"))
-test_data = bert_utils.load_conll(os.path.join(args.data_dir, "test.txt"))
+random.seed(args.seed)
+torch.manual_seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+torch.backends.cudnn.deterministic = True     
+torch.backends.cudnn.benchmark = False   # This makes things slower  
 
-# train_seqs, train_tags = train_data[0], train_data[1]
-# valid_seqs, valid_tags = valid_data[0], valid_data[1]
-train_seqs, train_tags = train_data[0][:1000], train_data[1][:1000]
-valid_seqs, valid_tags = valid_data[0][:100], valid_data[1][:100]
+# Load json file
+json_path = os.path.join(args.data_dir, "tsv/output/b1.json")
+train_seqs, train_tags = bert_utils.load_pico(json_path, group='train')
+valid_seqs, valid_tags = bert_utils.load_pico(json_path, group='valid')
+test_seqs, test_tags = bert_utils.load_pico(json_path, group='test')
+
+# train_data = bert_utils.load_conll(os.path.join(args.data_dir, "train.txt"))
+# valid_data = bert_utils.load_conll(os.path.join(args.data_dir, "valid.txt"))
+# test_data = bert_utils.load_conll(os.path.join(args.data_dir, "test.txt"))
 
 # Unique tags
 all_tags = train_tags + valid_tags
@@ -43,19 +51,20 @@ tag2idx = {tag: idx for idx, tag in enumerate(tag_set)}
 idx2tag = {idx: tag for tag, idx in tag2idx.items()}
 
 #%% Encoding and DataLoader
+n_tags = len(tag_set)
 # Define 'Fast' Tokenizer
 if args.pre_wgts == 'distil':
     # tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')   
-    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')   
+    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased', num_labels=n_tags)   
 elif args.pre_wgts == 'biobert':
-    tokenizer = BertTokenizerFast.from_pretrained('dmis-lab/biobert-v1.1')  
+    tokenizer = BertTokenizerFast.from_pretrained('dmis-lab/biobert-v1.1', num_labels=n_tags)  
 elif args.pre_wgts == 'pubmed-full':
-    tokenizer = BertTokenizerFast.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext') 
+    tokenizer = BertTokenizerFast.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext', num_labels=n_tags) 
 elif args.pre_wgts == 'pubmed-abs':
-    tokenizer = BertTokenizerFast.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract')       
+    tokenizer = BertTokenizerFast.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract', num_labels=n_tags)       
 else: # args.pre_wgts == 'bert-base'
     # tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
-    tokenizer = BertTokenizerFast.from_pretrained('/media/mynewdrive/rob/data/pre_wgts/bert_base')   
+    tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased', num_labels=n_tags)   
     
 # Tokenize seqs & encoding tags (set tags for non-first sub tokens to -100)
 train_inputs = tokenize_encode(train_seqs, train_tags, tag2idx, tokenizer)
@@ -65,21 +74,20 @@ valid_inputs = tokenize_encode(valid_seqs, valid_tags, tag2idx, tokenizer)
 train_dataset = EncodingDataset(train_inputs)
 valid_dataset = EncodingDataset(valid_inputs)
 
-temp = train_dataset[99]
-temp['tags']
-temp['input_ids']
-temp['attention_mask']
-temp['tags']
+# temp = train_dataset[99]
+# temp['tags']
+# temp['input_ids']
+# temp['attention_mask']
+# temp['tags']
 
 train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=PadDoc())
 valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=PadDoc())
 
-batch = next(iter(train_loader))
-input_ids_batch, attn_masks_batch, tags_batch, lens = batch   
+# batch = next(iter(train_loader))
+# input_ids_batch, attn_masks_batch, tags_batch, lens = batch   
 
 #%% Model & Optimizer & Scheduler
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-n_tags = len(tag_set)
 
 if args.pre_wgts == 'distil':
     pre_wgts = "distilbert-base-uncased"
@@ -90,7 +98,7 @@ elif args.pre_wgts == 'pubmed-full':
 elif args.pre_wgts == 'pubmed-abs':
     pre_wgts = "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract"       
 else: # args.pre_wgts == 'bert-base'
-    pre_wgts = "/media/mynewdrive/rob/data/pre_wgts/bert_base" 
+    pre_wgts = "bert-base-uncased" 
 
 
 if args.model == 'bert':

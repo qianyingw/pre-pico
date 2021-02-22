@@ -26,17 +26,10 @@ args = get_args()
 random.seed(args.seed)
 
 # Load json file
-seqs, tags = utils.load_pico(os.path.join(args.data_dir, "tsv/output/b1.json"))
-# Shuffle
-dat = list(zip(seqs, tags))
-random.shuffle(dat)
-seqs = [tup[0] for tup in dat]
-tags = [tup[1] for tup in dat]
-# Split to train/valid/test
-dlen = len(dat)
-train_data = [seqs[: int(0.8*dlen)], tags[: int(0.8*dlen)]]
-valid_data = [seqs[int(0.8*dlen):int(0.9*dlen)], tags[int(0.8*dlen):int(0.9*dlen)]]
-test_data = [seqs[int(0.9*dlen):], tags[int(0.9*dlen):]]
+json_path = os.path.join(args.data_dir, "tsv/output/b1.json")
+train_data = utils.load_pico(json_path, group='train')
+valid_data = utils.load_pico(json_path, group='valid')
+test_data = utils.load_pico(json_path, group='test')
 
 # train_data = utils.load_conll(os.path.join(args.data_dir, "train.txt"))
 # valid_data = utils.load_conll(os.path.join(args.data_dir, "valid.txt"))

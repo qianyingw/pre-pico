@@ -18,7 +18,7 @@ import bert_utils
 
 
 from torchcrf import CRF
-crf = CRF(9, batch_first=True)
+crf = CRF(13, batch_first=True)
 
 #%% Train
 def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip, accum_step, device):

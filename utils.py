@@ -43,7 +43,7 @@ def load_conll(filename):
     return [tokens_seqs, tags_seqs]
 
 #%% Load pico json file
-def load_pico(json_path):
+def load_pico(json_path, group='train'):
     '''
     tokens_seqs : list. Each element is a list of tokens for one abstract
                   tokens_seqs[i] --> ['Infected', 'mice', 'that', ...]
@@ -51,25 +51,14 @@ def load_pico(json_path):
                 tags_seqs[i] --> [''O', 'B-Species', 'O', ...]
     '''
     dat = [json.loads(line) for line in open(json_path, 'r')] 
-    dat.sort(key=lambda x: x['pid'])
-    
+        
     tokens_seqs, tags_seqs = [], []
-    # Group sents by pid
-    for k, v in groupby(dat, key=lambda x: x['pid']):
-        abs_sents = list(v)
-        abs_sents.sort(key=lambda x: x['sid'])
-        
-        # Concatenate sents from the same abtract
-        abs_tokens, abs_tags = [], []
-        for sent in abs_sents:
-            if sent['freq_ent'] > 0:  # remove sents without entities
-                abs_tokens += sent['sent']
-                abs_tags += sent['sent_tags']    
-        assert len(abs_tokens) == len(abs_tags)
-        
-        tokens_seqs.append(abs_tokens)
-        tags_seqs.append(abs_tags)
-    return tokens_seqs, tags_seqs
+    for ls in dat:
+        if ls['group'] == group:
+              tokens_seqs.append(ls['sent'])
+              tags_seqs.append(ls['sent_tags'])
+    
+    return [tokens_seqs, tags_seqs]
     
 #%%
 def epoch_idx2tag(epoch_sample_idxs, idx2tag):
