@@ -120,12 +120,46 @@ for file in os.listdir(in_dir):
     sent_ls += sent_ent_counter(tokens, tags, pmcid)
 
 
+#%% Concatenate and group sents by pid (for 2nd task - span detection)
+from itertools import groupby
+import random
+random.seed(1234)
+
+sent_ls.sort(key=lambda x: x['pid'])
+sent_ls_new = []
+for k, v in groupby(sent_ls, key=lambda x: x['pid']):
+    abs_sents = list(v)
+    abs_sents.sort(key=lambda x: x['sid'])
+    
+    # Concatenate sents from the same abtract
+    abs_tokens, abs_tags = [], []
+    for sent in abs_sents:
+        if sent['freq_ent'] > 0:  # remove sents without entities
+            abs_tokens += sent['sent']
+            abs_tags += sent['sent_tags']    
+            
+    assert len(abs_tokens) == len(abs_tags)
+    sent_ls_new.append({'pid': sent['pid'], 'sent': abs_tokens, 'sent_tags': abs_tags})
+            
+
+# Shuffle
+random.shuffle(sent_ls_new)
+# Assign train/valid/test labels
+dlen = len(sent_ls_new)
+for i, l in enumerate (sent_ls_new):
+    if i < int(0.8*dlen):
+        sent_ls_new[i]['group'] = 'train'
+    elif i >= int(0.8*dlen) and i < int(0.9*dlen):
+        sent_ls_new[i]['group'] = 'valid'
+    else:
+        sent_ls_new[i]['group'] = 'test'
+
 # json output
 with open(os.path.join(out_dir, 'b1.json'), 'w') as fout:
-    for l in sent_ls:     
+    for l in sent_ls_new:     
         fout.write(json.dumps(l) + '\n')  
 
-# csv output
+#%% csv output for sents detector
 sent_df = []
 for s in sent_ls:
     s.pop('sent_tags', None)    
