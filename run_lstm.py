@@ -110,11 +110,11 @@ for epoch in tf.range(1, args.epochs+1):
             
             # Unpad preds/tags to the real lengths (for metrics)
             for pred, text_len in zip(preds, text_lens):  # logit: [seq_len, num_tags]   
-                pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len])).tolist()   # convert tensor to list                
+                pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len+1])).tolist()   # convert tensor to list                
                 epoch_preds.append(pred_cut)
                 
             for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
-                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len+1])).tolist()   # convert tensor to list   
                 epoch_trues.append(tag_cut)
                               
             progress_bar.update(1)
@@ -133,11 +133,11 @@ for epoch in tf.range(1, args.epochs+1):
             
             # Unpad preds/tags to the real lengths (for metrics)
             for pred, text_len in zip(preds, text_lens):  # logit: [seq_len, num_tags]   
-                pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len])).tolist()   # convert tensor to list                
+                pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len+1])).tolist()   # convert tensor to list                
                 epoch_preds.append(pred_cut)
                 
             for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
-                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len+1])).tolist()   # convert tensor to list   
                 epoch_trues.append(tag_cut)
                 
             progress_bar.update(1)
@@ -180,11 +180,11 @@ def cls_report(batches, wgt_file, cls_file):
         
         # Unpad preds/tags to the real lengths (for metrics)
         for pred, text_len in zip(preds, text_lens):  # logit: [seq_len, num_tags]   
-            pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len])).tolist()   # convert tensor to list                
+            pred_cut = tf.make_ndarray(tf.make_tensor_proto(pred[:text_len+1])).tolist()   # convert tensor to list                
             epoch_preds.append(pred_cut)
             
         for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
-            tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+            tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len+1])).tolist()   # convert tensor to list   
             epoch_trues.append(tag_cut)
 
     epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
