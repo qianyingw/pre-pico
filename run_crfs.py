@@ -26,7 +26,8 @@ args = get_args()
 random.seed(args.seed)
 
 # Load json file
-json_path = os.path.join(args.data_dir, "tsv/output/b1.json")
+json_path = os.path.join(args.data_dir, "tsv/18mar_output/pico_18mar.json")
+# json_path = os.path.join(args.data_dir, "tsv/output/b1.json")
 train_data = utils.load_pico(json_path, group='train')
 valid_data = utils.load_pico(json_path, group='valid')
 test_data = utils.load_pico(json_path, group='test')
@@ -113,12 +114,12 @@ for epoch in tf.range(1, args.epochs+1):
             
             for logit, text_len in zip(logits, text_lens):  # logit: [seq_len, num_tags]   
                 # viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # [seq_len], list of integers containing the highest scoring tag indices      
-                viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.trans_pars)  # [text_len]
+                viterbi, _ = tfa.text.viterbi_decode(logit[:text_len+1], model.trans_pars)  # [text_len]
                 viterbi = tf.make_ndarray(tf.make_tensor_proto(viterbi)).tolist()   # convert tensor to list                
                 epoch_preds.append(viterbi)
                 
             for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
-                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len+1])).tolist()   # convert tensor to list   
                 epoch_trues.append(tag_cut)
                 
             progress_bar.update(1)
@@ -137,12 +138,12 @@ for epoch in tf.range(1, args.epochs+1):
             
             for logit, text_len in zip(logits, text_lens):  # logit: [seq_len, num_tags]    
                 # viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # viterbi: [seq_len]      
-                viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.trans_pars)  # viterbi: [text_len]
+                viterbi, _ = tfa.text.viterbi_decode(logit[:text_len+1], model.trans_pars)  # viterbi: [text_len]
                 viterbi = tf.make_ndarray(tf.make_tensor_proto(viterbi)).tolist()   # convert tensor to list                
                 epoch_preds.append(viterbi)
                              
             for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
-                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
+                tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len+1])).tolist()   # convert tensor to list   
                 epoch_trues.append(tag_cut)
                  
             progress_bar.update(1)
@@ -176,33 +177,31 @@ model.save_weights(f"{args.exp_dir}/tf_model_wgts", save_format='tf')
 
 #%% Evaluation on valid/test set (classification report)
 from seqeval.metrics import classification_report
-def cls_report(batches, wgt_file, cls_file):
+def cls_report(batches, wgt_file):
     model.load_weights(os.path.join(args.exp_dir, wgt_file))
     
     epoch_preds, epoch_trues = [], []
     for batch_seq, batch_tag in batches:
         logits, text_lens = valid_fn(model, valid_loss, batch_seq, batch_tag)    # [batch_size, seq_len, num_tags]
-            
+        print(text_lens) 
+        
         for logit, text_len in zip(logits, text_lens):  # logit: [seq_len, num_tags]    
             # viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # viterbi: [seq_len]      
-            viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.trans_pars)  # viterbi: [text_len]
+            viterbi, _ = tfa.text.viterbi_decode(logit[:text_len+1], model.trans_pars)  # viterbi: [text_len]
             viterbi = tf.make_ndarray(tf.make_tensor_proto(viterbi)).tolist()   # convert tensor to list                
             epoch_preds.append(viterbi)
                              
         for tag, text_len in zip(batch_tag, text_lens):  # batch_tag: [seq_len, num_tags]   
-            tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len])).tolist()   # convert tensor to list   
-            epoch_trues.append(tag_cut)  
+            tag_cut = tf.make_ndarray(tf.make_tensor_proto(tag[:text_len+1])).tolist()   # convert tensor to list   
+            epoch_trues.append(tag_cut)          
 
     epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
     epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)
-    
-    print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False))
-    report = classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=True)
-    df = pd.DataFrame(report).transpose()
-    df.to_csv(os.path.join(args.exp_dir, cls_file), sep=',', header=True, index=True)
 
-cls_report(valid_batches, wgt_file='tf_model_wgts', cls_file='cls_valid.csv')
-cls_report(test_batches, wgt_file='tf_model_wgts', cls_file='cls_test.csv')
+    print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False, digits=4))
+
+cls_report(valid_batches, wgt_file='tf_model_wgts')
+# cls_report(test_batches, wgt_file='tf_model_wgts')
 
    
 #%% Predict
