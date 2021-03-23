@@ -24,6 +24,7 @@ from model import CRF, BiLSTM_CRF
 #%% Load data
 args = get_args()
 random.seed(args.seed)
+tf.random.set_seed(args.seed)
 
 # Load json file
 json_path = os.path.join(args.data_dir, "tsv/18mar_output/pico_18mar.json")
@@ -155,12 +156,12 @@ for epoch in tf.range(1, args.epochs+1):
     valid_scores = utils.scores(epoch_tag_trues, epoch_tag_preds)
      
     
-    tf.print(tf.strings.format('\n[Epoch{}|train] loss: {}, f1: {}, rec: {}, prec: {}, acc: {}', 
+    tf.print(tf.strings.format('\n|Epoch{}|train| loss: {} | f1: {} | rec: {} | prec: {} | acc: {}', 
                                (epoch, train_loss.result(), 
                                 train_scores['f1'], train_scores['rec'], 
                                 train_scores['prec'], train_scores['acc'])))
     
-    tf.print(tf.strings.format('[Epoch{}|valid] loss: {}, f1: {}, rec: {}, prec: {}, acc: {}\n', 
+    tf.print(tf.strings.format('|Epoch{}|valid| loss: {} | f1: {} | rec: {} | prec: {} | acc: {}\n', 
                                (epoch, valid_loss.result(), 
                                 valid_scores['f1'], valid_scores['rec'], 
                                 valid_scores['prec'], valid_scores['acc'])))
