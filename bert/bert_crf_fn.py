@@ -17,9 +17,6 @@ import transformers
 import bert_utils
 
 
-from torchcrf import CRF
-crf = CRF(13, batch_first=True)
-
 #%% Train
 def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip, accum_step, device):
     
@@ -39,8 +36,8 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
             true_lens = batch[3]  # [batch_size]
         
             # preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)  
-            probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
-            preds_cut = crf.decode(probs_cut, mask=mask_cut)
+            preds_cut, probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
+            # preds_cut = crf.decode(probs_cut, mask=mask_cut)
 
             loss = -1 * log_likelihood                          
             batch_loss += loss.item() 
@@ -56,7 +53,7 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
                             
             for p, t, l in zip(preds_cut, tags, true_lens):
                 epoch_preds.append(p)   # list of lists                 
-                epoch_trues.append(t[1:l+1].tolist())  # list of lists. (1st tag is -100 so need to move one step)
+                epoch_trues.append(t[1:l+1].tolist())  # list of lists. (1st/last tag is -100 so need to move one step)
             progress_bar.update(1)
         
     # Convert epoch_idxs to epoch_tags
@@ -89,15 +86,15 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
     
                 # preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)   
                 # preds: list of lists. each element is a tag seq with true_len (unpad & -100 removed) for one sample    
-                probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
-                preds_cut = crf.decode(probs_cut, mask=mask_cut)
+                preds_cut, probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
+                # preds_cut = crf.decode(probs_cut, mask=mask_cut)
                         
                 loss = -1 * log_likelihood 
                 batch_loss += loss.item()       
                 
                 for p, t, l in zip(preds_cut, tags, true_lens):
                     epoch_preds.append(p)   # list of lists                 
-                    epoch_trues.append(t[1:l+1].tolist())  # list of lists (the 1st tag is -100 so need to be removed)
+                    epoch_trues.append(t[1:l+1].tolist())  # list of lists (the 1st/last tag is -100 so need to be removed)
                 progress_bar.update(1)             
 
     # Convert epoch_idxs to epoch_tags

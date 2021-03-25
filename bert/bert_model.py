@@ -37,31 +37,30 @@ class BERT_CRF(BertPreTrainedModel):
 
         out_dp = self.dropout(hidden_states)
         emission_probs = self.fc(out_dp)  # [batch_size, seq_len, num_tags]
-        
-        attention_mask = attention_mask.type(torch.uint8)
-        
-        probs_cut, mask_cut, tags_cut = [], [], []
-        for prob, mask, tag in zip(emission_probs, attention_mask, labels):
-            # prob: [seq_len, num_tags]
-            # mask/tag: [seq_len]
-            probs_cut.append(prob[tag!=-100, :])
-            mask_cut.append(mask[tag!=-100])
-            tags_cut.append(tag[tag!=-100])
-        
-        probs_cut = torch.stack(probs_cut)  # [batch_size, seq_len-2, num_tags]
-        mask_cut = torch.stack(mask_cut)   # [batch_size, seq_len-2]
-        tags_cut = torch.stack(tags_cut)  # [batch_size, seq_len-2]
-                     
-              
-        if labels is None:
+        attention_mask = attention_mask.type(torch.uint8)    
+    
+        if labels is None:  # prediction only. no padding
+            # Remove cls/sep (tagged as -100 by tokenize_encode)
+            probs_cut = emission_probs[:, 1:-1, :]  # [batch_size, seq_len-2, num_tags]
+            mask_cut = attention_mask[:, 1:-1]   # [batch_size, seq_len-2]         
             preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
             return preds  # preds: list of list containing best tag seqs for each batch
         else:
-            # log_likelihood = self.crf(probs_cut, tags_cut, mask=mask_cut)  # [batch_size]
+            probs_cut, mask_cut, tags_cut = [], [], []
+            for prob, mask, tag in zip(emission_probs, attention_mask, labels):
+                # prob: [seq_len, num_tags]
+                # mask/tag: [seq_len]
+                probs_cut.append(prob[tag!=-100, :])
+                mask_cut.append(mask[tag!=-100])
+                tags_cut.append(tag[tag!=-100])
+            probs_cut = torch.stack(probs_cut)  # [batch_size, seq_len-2, num_tags]
+            mask_cut = torch.stack(mask_cut)   # [batch_size, seq_len-2]
+            tags_cut = torch.stack(tags_cut)  # [batch_size, seq_len-2]
+                
             # log_likelihood = self.crf(F.softmax(probs_cut, dim=2), tags_cut, mask=mask_cut, reduction='mean')  
             log_likelihood = self.crf(F.log_softmax(probs_cut, dim=2), tags_cut, mask=mask_cut, reduction='mean')  
-            # preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
-            return probs_cut, mask_cut, log_likelihood
+            preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
+            return preds, probs_cut, mask_cut, log_likelihood
 
 #%%
 class BERT_LSTM_CRF(BertPreTrainedModel):
@@ -113,7 +112,7 @@ class BERT_LSTM_CRF(BertPreTrainedModel):
         else:
             log_likelihood = self.crf(probs_cut, tags_cut, mask=mask_cut)  # [batch_size]
             preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
-            return preds, log_likelihood
+            return preds, mask_cut, log_likelihood
         
         
 #%%
@@ -134,7 +133,7 @@ class Distil_CRF(DistilBertPreTrainedModel):
     def forward(self, input_ids, attention_mask, labels=None):
         
         # Calculate true text_lens
-        text_lens = torch.sum(attention_mask, dim=1)  # [batch_size]
+        # text_lens = torch.sum(attention_mask, dim=1)  # [batch_size]
         
         outputs = self.distilbert(input_ids, attention_mask)
         hidden_states = outputs[0]  # [batch_size, seq_len, hidden_size] 
@@ -161,4 +160,4 @@ class Distil_CRF(DistilBertPreTrainedModel):
         else:
             log_likelihood = self.crf(probs_cut, tags_cut, mask=mask_cut)  # [batch_size]
             preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
-            return preds, log_likelihood
+            return preds, mask_cut, log_likelihood
