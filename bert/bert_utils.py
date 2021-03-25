@@ -6,6 +6,8 @@ Created on Wed Dec 30 13:58:37 2020
 @author: qwang
 """
 
+import os
+import shutil
 import re
 import json
 import numpy as np
@@ -84,8 +86,8 @@ def load_pico(json_path, group='train'):
 # https://github.com/huggingface/notebooks/blob/master/examples/token_classification.ipynb
 
 def tokenize_encode(seqs, tags, tag2idx, tokenizer, tag_all_tokens=True):
-    inputs = tokenizer(seqs, is_split_into_words=True, return_offsets_mapping=True, padding=False, truncation=True)
     
+    inputs = tokenizer(seqs, is_split_into_words=True, return_offsets_mapping=True, padding=False, truncation=True)
     all_tags_enc_old = [[tag2idx[tag] for tag in record] for record in tags]  # convert tags to idxs
     all_tags_enc_new = []
     
@@ -181,3 +183,90 @@ def scores(epoch_trues, epoch_preds):
     #         "rec": rec, #np.around(rec, 4),  
     #         "prec": prec, #np.around(prec, 4), 
     #         "acc": acc} #np.around(acc, 4)}
+
+
+#%%
+def save_checkpoint(state, is_best, checkdir):
+    """
+    Save model and training parameters at checkpoint + 'last.pth.tar'. 
+    If is_best==True, also saves checkpoint + 'best.pth.tar'
+    Params:
+        state: (dict) contains model's state_dict, may contain other keys such as epoch, optimizer state_dict
+        is_best: (bool) True if it is the best model seen till now
+        checkdir: (string) folder where parameters are to be saved
+    """        
+    filepath = os.path.join(checkdir, 'last.pth.tar')
+    if os.path.exists(checkdir) == False:
+        os.mkdir(checkdir)
+    torch.save(state, filepath)    
+    
+    if is_best:
+        shutil.copyfile(filepath, os.path.join(checkdir, 'best.pth.tar'))
+        
+        
+        
+def load_checkpoint(checkfile, model, optimizer=None):
+    """
+    Load model parameters (state_dict) from checkfile. 
+    If optimizer is provided, loads state_dict of optimizer assuming it is present in checkpoint.
+    Params:
+        checkfile: (string) filename which needs to be loaded
+        model: (torch.nn.Module) model for which the parameters are loaded
+        optimizer: (torch.optim) optional: resume optimizer from checkpoint
+    """        
+    if os.path.exists(checkfile) == False:
+        raise("File doesn't exist {}".format(checkfile))
+    checkfile = torch.load(checkfile)
+    model.load_state_dict(checkfile['state_dict'])
+    
+    if optimizer:
+        optimizer.load_state_dict(checkfile['optim_dict'])
+    
+    return checkfile
+
+
+def save_dict_to_json(d, json_path):
+    """
+    Save dict of floats to json file
+    d: dict of float-castable values (np.float, int, float, etc.)
+      
+    """      
+    with open(json_path, 'w') as fout:
+        d = {key: float(value) for key, value in d.items()}
+        json.dump(d, fout, indent=4)
+
+#%%
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def plot_prfs(prfs_json_path):
+    
+    with open(prfs_json_path) as f:
+        dat = json.load(f)
+ 
+    # Create scores dataframe
+    epochs = int(len(dat['prfs'])/2)
+    cols = ['f1', 'rec', 'prec', 'acc', 'loss']
+    train_df = pd.DataFrame(columns=cols)
+    valid_df = pd.DataFrame(columns=cols)
+    for i in range(epochs):
+        train_df.loc[i] = list(dat['prfs']['train_'+str(i+1)].values())
+        valid_df.loc[i] = list(dat['prfs']['valid_'+str(i+1)].values()) 
+    
+    # Plot
+    plt.figure(figsize=(15,5))
+    x = np.arange(len(train_df)) + 1   
+    # Loss
+    plt.subplot(1, 2, 1)
+    plt.title("Loss")
+    plt.plot(x, train_df['loss'], label="train_loss", color='C5')
+    plt.plot(x, valid_df['loss'], label="valid_loss", color='C5', linestyle='--')
+    plt.xticks(np.arange(2, len(x)+2, step=2))
+    plt.legend(loc='upper right')
+    # F1
+    plt.subplot(1, 2, 2)
+    plt.title("F1")
+    plt.plot(x, train_df['f1'], label="train_f1", color='C1')
+    plt.plot(x, valid_df['f1'], label="valid_f1", color='C1', linestyle='--')
+    plt.xticks(np.arange(2, len(x)+2, step=2))
+    plt.legend(loc='lower right')    

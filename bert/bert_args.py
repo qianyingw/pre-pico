@@ -37,15 +37,15 @@ def get_args():
     parser.add_argument('--clip', nargs="?", type=float, default=0.1, help='Gradient clipping')
     parser.add_argument('--accum_step', nargs="?", type=int, default=4, help='Number of steps for gradient accumulation')
     
-    parser.add_argument('--data_dir', nargs="?", type=str, default="/home/qwang/bioner/conll/data", help='Directory of info data files')
-    parser.add_argument('--embed_path', nargs="?", type=str, default="/home/qwang/bioner/conll/data/glove.6B.100d.txt", help='Path of embedding')
-    parser.add_argument('--exp_dir', nargs="?", type=str, default="/home/qwang/bioner/conll/exp", help="The directory of the model predictions and checkpoints saved")
+    parser.add_argument('--data_dir', nargs="?", type=str, default="/home/qwang/pre-pico/data", help='Directory of info data files')
+    parser.add_argument('--embed_path', nargs="?", type=str, default="/media/mynewdrive/rob/wordvec/wikipedia-pubmed-and-PMC-w2v.txt", help='Path of embedding')
+    parser.add_argument('--exp_dir', nargs="?", type=str, default="/home/qwang/pre-pico/exp", help="The directory of the model predictions and checkpoints saved")
     parser.add_argument('--pre_wgts', nargs="?", type=str, default="bert", 
                         choices=['distil', 'bert', 'biobert', 'pubmed-full', 'pubmed-abs'],
                         help='Pre-trained model name')
     
     parser.add_argument('--max_vocab_size', nargs="?", type=int, default=None, help='Maximum size of the vocabulary')
-    parser.add_argument('--embed_dim', nargs="?", type=int, default=100, help='Embedding dim')
+    parser.add_argument('--embed_dim', nargs="?", type=int, default=200, help='Embedding dim')
     parser.add_argument('--hidden_dim', nargs="?", type=int, default=64, help='Dim of lstm hidden states')
     
     parser.add_argument('--model', nargs="?", type=str, default='bert_crf', 

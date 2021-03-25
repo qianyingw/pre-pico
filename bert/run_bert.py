@@ -11,6 +11,7 @@ import os
 os.chdir("/home/qwang/pre-pico/bert")
 
 import random
+import json
 import torch
 from torch.utils.data import DataLoader
 
@@ -20,7 +21,7 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 
 from bert_args import get_args
 import bert_utils
-from bert_utils import tokenize_encode, EncodingDataset, PadDoc
+from bert_utils import tokenize_encode, EncodingDataset, PadDoc, plot_prfs
 
 import bert_fn
 import bert_crf_fn
@@ -28,14 +29,24 @@ from bert_model import BERT_CRF, BERT_LSTM_CRF, Distil_CRF
 
 #%% Load data
 args = get_args()
+args.epochs = 30
+args.lr = 1e-4
+args.warm_frac = 0 # 0.1
+args.exp_dir = "/home/qwang/pre-pico/exp/bert_crf/bc6_full"
+args.pre_wgts = 'pubmed-full'   # ['distil', 'bert', 'biobert', 'pubmed-full', 'pubmed-abs']
+args.model = 'bert_crf'  # ['bert', 'bert_crf', 'bert_lstm_crf', 'distil', 'distil_crf']
+args.save_model = True
+
 random.seed(args.seed)
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
 torch.backends.cudnn.deterministic = True     
 torch.backends.cudnn.benchmark = False   # This makes things slower  
 
 # Load json file
-json_path = os.path.join(args.data_dir, "tsv/output/b1.json")
+json_path = os.path.join(args.data_dir, "tsv/18mar_output/pico_18mar.json")
+# json_path = os.path.join(args.data_dir, "tsv/output/b1.json")
 train_seqs, train_tags = bert_utils.load_pico(json_path, group='train')
 valid_seqs, valid_tags = bert_utils.load_pico(json_path, group='valid')
 test_seqs, test_tags = bert_utils.load_pico(json_path, group='test')
@@ -69,10 +80,12 @@ else: # args.pre_wgts == 'bert-base'
 # Tokenize seqs & encoding tags (set tags for non-first sub tokens to -100)
 train_inputs = tokenize_encode(train_seqs, train_tags, tag2idx, tokenizer)
 valid_inputs = tokenize_encode(valid_seqs, valid_tags, tag2idx, tokenizer)
+test_inputs = tokenize_encode(test_seqs, test_tags, tag2idx, tokenizer)
 
 # Torch Dataset
 train_dataset = EncodingDataset(train_inputs)
 valid_dataset = EncodingDataset(valid_inputs)
+test_dataset = EncodingDataset(test_inputs)
 
 # temp = train_dataset[99]
 # temp['tags']
@@ -82,6 +95,7 @@ valid_dataset = EncodingDataset(valid_inputs)
 
 train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=PadDoc())
 valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=PadDoc())
+test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=PadDoc())
 
 # batch = next(iter(train_loader))
 # input_ids_batch, attn_masks_batch, tags_batch, lens = batch   
@@ -130,7 +144,6 @@ output_dict = {'args': vars(args), 'prfs': {}}
 # For early stopping
 n_worse = 0
 min_valid_loss = float('inf')
-max_valid_f1 = float('-inf')
 
 for epoch in range(args.epochs):  
     if args.model in ['distil_crf', 'bert_crf', 'bert_lstm_crf']:
@@ -144,21 +157,17 @@ for epoch in range(args.epochs):
     output_dict['prfs'][str('train_'+str(epoch+1))] = train_scores
     output_dict['prfs'][str('valid_'+str(epoch+1))] = valid_scores
        
-    # Save scores
-    # if valid_scores['loss'] < min_valid_loss:
-    #     min_valid_loss = valid_scores['loss']    
-    is_best = (valid_scores['f1'] > max_valid_f1)
-    
-    # if is_best == True:   
-    #     max_valid_f1 = valid_scores['f1'] 
-    #     utils.save_dict_to_json(valid_scores, os.path.join(args.exp_dir, 'best_val_scores.json'))
+    # Save scores 
+    is_best = (valid_scores['loss'] < min_valid_loss)
+    if is_best == True:   
+        min_valid_loss = valid_scores['loss']
     
     # Save model
-    # if args.save_model == True:
-    #     utils.save_checkpoint({'epoch': epoch+1,
-    #                            'state_dict': model.state_dict(),
-    #                            'optim_Dict': optimizer.state_dict()},
-    #                            is_best = is_best, checkdir = args.exp_dir)
+    if args.save_model == True:
+        bert_utils.save_checkpoint({'epoch': epoch+1,
+                                    'state_dict': model.state_dict(),
+                                    'optim_Dict': optimizer.state_dict()},
+                                     is_best = is_best, checkdir = args.exp_dir)
     
     print("\n\nEpoch {}/{}...".format(epoch+1, args.epochs))
     print('[Train] loss: {0:.3f} | acc: {1:.2f}% | f1: {2:.2f}% | prec: {3:.2f}% | rec: {4:.2f}%'.format(
@@ -174,7 +183,65 @@ for epoch in range(args.epochs):
     #     break
         
 # Write performance and args to json
-# prfs_name = os.path.basename(args.exp_dir)+'_prfs.json'
-# prfs_path = os.path.join(args.exp_dir, prfs_name)
-# with open(prfs_path, 'w') as fout:
-#     json.dump(output_dict, fout, indent=4)
+prfs_name = os.path.basename(args.exp_dir)+'_prfs.json'
+prfs_path = os.path.join(args.exp_dir, prfs_name)
+with open(prfs_path, 'w') as fout:
+    json.dump(output_dict, fout, indent=4)
+   
+    
+#%% Evaluation on valid/test set (classification report)
+from seqeval.metrics import classification_report
+from torchcrf import CRF
+# crf = CRF(13, batch_first=True)
+
+def cls_report(data_loader, pth_path, add_crf=True, device=torch.device('cpu')):
+    # Load checkpoin
+    checkpoint = torch.load(pth_path, map_location=device)
+    state_dict = checkpoint['state_dict']
+    model.load_state_dict(state_dict, strict=False)
+    model.cpu()
+    model.eval()
+    
+    epoch_preds, epoch_trues = [], []
+    for j, batch in enumerate(data_loader):                      
+        
+        input_ids = batch[0].to(device)  # [batch_size, seq_len]
+        attn_mask = batch[1].to(device)  # [batch_size, seq_len]
+        tags = batch[2].to(device)  # [batch_size, seq_len]
+        true_lens = batch[3]  # [batch_size]
+        # print(true_lens)
+        
+        if add_crf == True:          
+            preds_cut, probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
+            # preds_cut = model.crf.decode(probs_cut, mask=mask_cut)                      
+            for p, t, l in zip(preds_cut, tags, true_lens):
+                epoch_preds.append(p)   # list of lists                 
+                epoch_trues.append(t[1:l+1].tolist())  # list of lists (the 1st/last tag is -100 so need to be removed)
+        else:     
+            outputs = model(input_ids, attention_mask = attn_mask, labels = tags)   
+            logits =  outputs[1]  # [batch_size, seq_len, num_tags]
+            preds = torch.argmax(logits, dim=2)  # [batch_size, seq_len]            
+            # Append preds/trues with real seq_lens (before padding) to epoch_samaple_preds/trues
+            for p, t, l in zip(preds, tags, true_lens):
+                epoch_preds.append(p[1:l+1].tolist())  # p[:l].shape = l
+                epoch_trues.append(t[1:l+1].tolist())  # t[:l].shape = l             
+    
+    # Convert epoch_idxs to epoch_tags
+    if add_crf == True:
+        epoch_tag_preds = bert_utils.epoch_idx2tag(epoch_preds, idx2tag)
+        epoch_tag_trues = bert_utils.epoch_idx2tag(epoch_trues, idx2tag)   
+    else:
+        # Remove ignored index (-100)
+        epoch_preds_cut, epoch_trues_cut = [], []
+        for preds, trues in zip(epoch_preds, epoch_trues):  # per sample
+            preds_cut = [p for (p, t) in zip(preds, trues) if t != -100]
+            trues_cut = [t for (p, t) in zip(preds, trues) if t != -100]               
+            epoch_preds_cut.append(preds_cut)
+            epoch_trues_cut.append(trues_cut)
+        epoch_tag_preds = bert_utils.epoch_idx2tag(epoch_preds_cut, idx2tag)
+        epoch_tag_trues = bert_utils.epoch_idx2tag(epoch_trues_cut, idx2tag)
+    print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False, digits=4))    
+
+pth_path = os.path.join(args.exp_dir, 'best.pth.tar')
+cls_report(valid_loader, pth_path, add_crf=True)
+cls_report(test_loader, pth_path, add_crf=True)
