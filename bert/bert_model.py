@@ -74,9 +74,9 @@ class BERT_LSTM_CRF(BertPreTrainedModel):
         
         self.lstm = nn.LSTM(input_size = config.hidden_size, hidden_size = config.hidden_size,
                             num_layers = 1, dropout = config.hidden_dropout_prob, 
-                            batch_first = True, bidirectional = False)
+                            batch_first = True, bidirectional = True)
         
-        self.fc = nn.Linear(config.hidden_size, config.num_labels)
+        self.fc = nn.Linear(config.hidden_size*2, config.num_labels)
         
         self.init_weights()
         self.crf = CRF(config.num_labels, batch_first=True)
@@ -88,31 +88,32 @@ class BERT_LSTM_CRF(BertPreTrainedModel):
         hidden_states = outputs[0]  # [batch_size, seq_len, hidden_size]
         
         out_dp = self.dropout(hidden_states)
-        out_lstm, (h_n, c_n) = self.lstm(out_dp)    # [batch_size, seq_len, hidden_size]         
-        emission_probs = self.fc(out_lstm)  # [batch_size, seq_len, num_tags]
-        
-        attention_mask = attention_mask.type(torch.uint8)
-        
-        probs_cut, mask_cut, tags_cut = [], [], []
-        for prob, mask, tag in zip(emission_probs, attention_mask, labels):
-            # prob: [seq_len, num_tags]
-            # mask/tag: [seq_len]
-            probs_cut.append(prob[tag!=-100, :])
-            mask_cut.append(mask[tag!=-100])
-            tags_cut.append(tag[tag!=-100])
-        
-        probs_cut = torch.stack(probs_cut) 
-        mask_cut = torch.stack(mask_cut) 
-        tags_cut = torch.stack(tags_cut) 
-                     
+        out_lstm, (h_n, c_n) = self.lstm(out_dp)    # [batch_size, seq_len, 2*hidden_size]         
+        emission_probs = self.fc(out_lstm)  # [batch_size, seq_len, num_tags]        
+        attention_mask = attention_mask.type(torch.uint8)      
               
         if labels is None:
+            # Remove cls/sep (tagged as -100 by tokenize_encode)
+            probs_cut = emission_probs[:, 1:-1, :]  # [batch_size, seq_len-2, num_tags]
+            mask_cut = attention_mask[:, 1:-1]   # [batch_size, seq_len-2]         
             preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
             return preds  # preds: list of list containing best tag seqs for each batch
         else:
-            log_likelihood = self.crf(probs_cut, tags_cut, mask=mask_cut)  # [batch_size]
+            probs_cut, mask_cut, tags_cut = [], [], []
+            for prob, mask, tag in zip(emission_probs, attention_mask, labels):
+                # prob: [seq_len, num_tags]
+                # mask/tag: [seq_len]
+                probs_cut.append(prob[tag!=-100, :])
+                mask_cut.append(mask[tag!=-100])
+                tags_cut.append(tag[tag!=-100])       
+            probs_cut = torch.stack(probs_cut)  # [batch_size, seq_len-2, num_tags]
+            mask_cut = torch.stack(mask_cut)  # [batch_size, seq_len-2]
+            tags_cut = torch.stack(tags_cut)  # [batch_size, seq_len-2]
+        
+            # log_likelihood = self.crf(F.softmax(probs_cut, dim=2), tags_cut, mask=mask_cut, reduction='mean')  
+            log_likelihood = self.crf(F.log_softmax(probs_cut, dim=2), tags_cut, mask=mask_cut, reduction='mean')  
             preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
-            return preds, mask_cut, log_likelihood
+            return preds, probs_cut, mask_cut, log_likelihood
         
         
 #%%
