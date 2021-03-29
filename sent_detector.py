@@ -7,9 +7,11 @@ Created on Thu Feb 18 13:45:53 2021
 """
 
 import os
+import random
 os.chdir('/home/qwang/pre-pico')
 from tqdm import tqdm
 import pandas as pd
+import json
 
 import torch
 import torch.nn as nn
@@ -20,17 +22,25 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 import utils
 metrics_fn = utils.metrics_fn
 
+#%%
 NUM_EPOCHS = 10
 SEED = 1234
-# PRE_WGTS = 'bert-base-uncased'
+EXP_DIR = '/home/qwang/pre-pico/exp/sent/base'
+PRE_WGTS = 'bert-base-uncased'
 # PRE_WGTS = 'dmis-lab/biobert-v1.1'
 # PRE_WGTS = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract'
-PRE_WGTS = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
+# PRE_WGTS = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
 
 softmax = nn.Softmax(dim=1)
+random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+torch.backends.cudnn.deterministic = True     
+torch.backends.cudnn.benchmark = False   # This makes things slower  
 
 #%% Load data
-dat = pd.read_csv("data/tsv/b1.csv", sep=',', engine="python")   
+dat = pd.read_csv("data/tsv/18mar_output/pico_18mar.csv", sep=',', engine="python")   
 dat = dat.sample(frac=1, random_state=SEED)  # Shuffle
 dat = dat.reset_index(drop=True)
 
@@ -153,12 +163,38 @@ def valid_fn(model, data_loader, threshold=0.5):
     return scores
 
 #%%
+if os.path.exists(EXP_DIR) == False:
+    os.makedirs(EXP_DIR)   
+min_valid_loss = float('inf')
+output_dict = {'prfs': {}}
+
 for epoch in range(NUM_EPOCHS):   
     train_scores = train_fn(model, train_loader)
     valid_scores = valid_fn(model, valid_loader)       
+    
+    # Update output dictionary
+    output_dict['prfs'][str('train_'+str(epoch+1))] = train_scores
+    output_dict['prfs'][str('valid_'+str(epoch+1))] = valid_scores
+    
+    # Save scores 
+    is_best = (valid_scores['loss'] < min_valid_loss)
+    if is_best == True:   
+        min_valid_loss = valid_scores['loss']
+    
+    # Save model
+    utils.save_checkpoint({'epoch': epoch+1,
+                           'state_dict': model.state_dict(),
+                           'optim_Dict': optimizer.state_dict()},
+                           is_best = is_best, checkdir = EXP_DIR)
 
     print("\n\nEpoch {}/{}...".format(epoch+1, NUM_EPOCHS))                       
     print('\n[Train] loss: {0:.3f} | acc: {1:.2f} | f1: {2:.2f} | rec: {3:.2f} | prec: {4:.2f} | spec: {5:.2f}'.format(
             train_scores['loss'], train_scores['accuracy']*100, train_scores['f1']*100, train_scores['recall']*100, train_scores['precision']*100, train_scores['specificity']*100))
     print('[Valid] loss: {0:.3f} | acc: {1:.2f} | f1: {2:.2f} | rec: {3:.2f} | prec: {4:.2f} | spec: {5:.2f}\n'.format(
         valid_scores['loss'], valid_scores['accuracy']*100, valid_scores['f1']*100, valid_scores['recall']*100, valid_scores['precision']*100, valid_scores['specificity']*100))
+    
+
+prfs_name = os.path.basename(EXP_DIR)+'_prfs.json'
+prfs_path = os.path.join(EXP_DIR, prfs_name)
+with open(prfs_path, 'w') as fout:
+    json.dump(output_dict, fout, indent=4)
