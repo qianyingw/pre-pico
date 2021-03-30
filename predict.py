@@ -6,13 +6,53 @@ Created on Mon Dec 14 12:54:11 2020
 @author: qwang
 """
 
-#%% Predict
+import re
+import json
 import spacy
 nlp = spacy.load('en_core_sci_sm')
 import tensorflow as tf
 import tensorflow_addons as tfa
 from model import BiLSTM, CRF, BiLSTM_CRF
 
+import torch
+
+from transformers import BertTokenizerFast, BertForTokenClassification, BertForSequenceClassification
+from transformers import DistilBertTokenizerFast, DistilBertForTokenClassification
+from bert.bert_model import BERT_CRF, BERT_LSTM_CRF, Distil_CRF
+
+
+#%% PICO sentence detector
+sent_tokenizer = BertTokenizerFast.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract') 
+sent_model = BertForSequenceClassification.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract')
+
+def sent_detect(text, pth_path):
+    
+    # Split to sents and tokenization
+    sents = list(nlp(text).sents)  
+    sents = [str(s) for s in sents]     
+    inputs = sent_tokenizer(sents, truncation=True, padding=True, return_tensors="pt")
+    
+    # Load checkpoint
+    checkpoint = torch.load(pth_path, map_location=torch.device('cpu') )
+    state_dict = checkpoint['state_dict']
+    sent_model.load_state_dict(state_dict, strict=False)
+    sent_model.cpu()
+    
+    # Run model
+    sent_model.eval()
+    probs = sent_model(**inputs)['logits']
+    preds = torch.argmax(probs, dim=1)
+    preds = list(preds.data.cpu().numpy())
+    
+    # Cut non-pico sents and concatenate to new text
+    sents_cut = [s for s, i in zip(sents, preds) if i == 1]
+    text_cut = ' '.join(sents_cut)
+    
+    return text_cut
+
+
+
+#%% Predict
 def pred_one(text, word2idx, idx2tag, model):
     '''
     Return
@@ -57,13 +97,7 @@ def pred_one(text, word2idx, idx2tag, model):
 # print(pred_one(text, word2idx, idx2tag, model))
 
 #%%
-import torch
-
-from transformers import BertTokenizerFast, BertForTokenClassification
-from transformers import DistilBertTokenizerFast, DistilBertForTokenClassification
-from bert.bert_model import BERT_CRF, BERT_LSTM_CRF, Distil_CRF
-
-  
+ 
 def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
     '''
     Return
@@ -113,7 +147,7 @@ def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
         
     ids = inputs['input_ids'][1:-1]
     tokens = tokenizer.convert_ids_to_tokens(ids)
-    tags = [idx2tag[idx] for idx in preds]
+    tags = [idx2tag[str(idx)] for idx in preds]
     
     # Record span start/end idxs
     sidxs, eidxs = [], []
@@ -145,6 +179,7 @@ def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
             indices = [idx for idx, t in enumerate(ent_tags) if t.split('-')[1] == ent]
             sub = [ent_tokens[ic] for ic in indices]
             sub_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(sub))
+            sub_text = re.sub(r" - ", "-", sub_text)
             tup.append((ent, sub_text))
             
     return tup
@@ -165,26 +200,24 @@ def tup2dict(tup):
     return ent_dict
         
 #%%
-idx2tag = {0: 'B-Intervention',
- 1: 'B-Species',
- 2: 'I-Strain',
- 3: 'B-Strain',
- 4: 'I-Comparator',
- 5: 'I-Outcome',
- 6: 'B-Induction',
- 7: 'O',
- 8: 'B-Outcome',
- 9: 'I-Intervention',
- 10: 'B-Comparator',
- 11: 'I-Induction',
- 12: 'I-Species'}
+# Read text
+txt_path = '/home/qwang/pre-pico/sample.txt'  # PMC5324681
+with open(txt_path, 'r', encoding='utf-8') as fin:
+    text = fin.read()
 
+### Extract pico text   
+sent_pth_path = '/media/mynewdrive/pico/exp/sent/abs/best.pth.tar'
+text = sent_detect(text, sent_pth_path)
+
+### Extract pico phrases
 mod = 'bert_crf'
-
-pre_wgts = 'pubmed-full'
-pth_path = '/home/qwang/pre-pico/exp/bert_crf/bc0_full/best.pth.tar'
-text = '''In the present study, we examined the time-dependent changes of calbindin D-28k (CB) protein expression in the mouse hippocampus after a systemic administration of 1 mg/kg LPS. CB immunoreactivity was markedly increased in pyramidal cells of the hippocampal CA1/2 regions and in granule cells of the dentate gyrus from 3 hr to 48 hr after LPS treatment. At this point in time, CB protein level was also significantly increased in the mouse hippocampus. Thereafter, CB protein expression was decreased at 96 hr after LPS treatment.'''
-text = '''The results of this study show increased production of IL‐2 and the inflammatory cytokines IL‐6, IL‐17 and TNF‐α by spleen cells of lesion‐bearing mice that were treated with PD‐1 antibody for 1 week compared to cytokine production by spleen cells of lesion‐bearing mice treated with control antibody. Production of IFN‐γ increased at 3 weeks of PD‐1 antibody treatment, although production of the other Th1 and inflammatory mediators declined. By 5 weeks, levels of these cytokines declined for both control and PD‐1 antibody‐treated mice. Flow cytometric analysis for IFN‐γ‐expressing cells showed shifts in CD4+ cells expressing IFN‐γ consistent with the changes in cytokine secretion. Whether or not treatment generated reactivity to lesions or HNSCC was determined. Spleen cells from PD‐1 antibody‐treated mice were stimulated by lysates of premalignant lesion and HNSCC tongue tissues to produce increased levels of Th1 and select inflammatory cytokines early in the course of PD‐1 antibody treatment. However, with continued treatment, reactivity to lesion and HNSCC lysates declined. Analysis of clinical response to treatment suggested an early delay in lesion progression but, with continued treatment, lesions in PD‐1 antibody‐treated mice progressed to the same degree as in control antibody‐treated mice'''
-
+pre_wgts = 'pubmed-abs'
+prfs_path = '/media/mynewdrive/pico/exp/bert_crf/bc6_abs/bc6_abs_prfs.json'
+pth_path = '/media/mynewdrive/pico/exp/bert_crf/bc6_abs/best.pth.tar'  
+with open(prfs_path) as f:
+    dat = json.load(f)    
+idx2tag = dat['idx2tag']
+               
 tup = pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag)
+print()
 print(tup2dict(tup))
