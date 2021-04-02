@@ -21,11 +21,12 @@ class BiLSTM(tf.keras.Model):
                                       embeddings_initializer = tf.keras.initializers.Constant(embed_matrix))                                      
         
         self.bilstm = layers.Bidirectional(layers.LSTM(units = hidden_dim, return_sequences=True, return_state=False))  
+        self.dropout = layers.Dropout(rate = 0.1)
         self.fc = layers.Dense(units = num_tags)
         # self.fc = layers.dense(units = num_tags, activation='relu')
         # self.softmax = layers.Activation('softmax')   
     
-    def call(self, text):
+    def call(self, text, training=None):
         '''
             text: [batch_size, seq_len]
         '''
@@ -33,7 +34,8 @@ class BiLSTM(tf.keras.Model):
         text_lens = tf.math.reduce_sum(non_zeros, axis=1)  # [batch_size]
         
         out_embed = self.embed(text)  # [batch_size, seq_len, embed_dim]
-        out_lstm = self.bilstm(out_embed)  # [batch_size, seq_len, hidden_dim*2]
+        out_dp = self.dropout(out_embed, training)  # [batch_size, seq_len, embed_dim]
+        out_lstm = self.bilstm(out_dp)  # [batch_size, seq_len, hidden_dim*2]
         probs = self.fc(out_lstm)  # [batch_size, seq_len, num_tags]
         # probs = self.softmax(probs)  # [batch_size, seq_len, num_tags]
         
@@ -48,7 +50,7 @@ class CRF(tf.keras.Model):
         self.embed = layers.Embedding(input_dim = vocab_size, output_dim = embed_dim, trainable=True,
                                       embeddings_initializer = tf.keras.initializers.Constant(embed_matrix))
         
-        self.dropout = layers.Dropout(rate = 0.5)
+        self.dropout = layers.Dropout(rate = 0.1)
         self.fc = layers.Dense(units = num_tags)
         
         self.trans_pars = tf.Variable(tf.random.uniform(shape = (num_tags, num_tags)))
@@ -87,7 +89,7 @@ class BiLSTM_CRF(tf.keras.Model):
         self.embed = layers.Embedding(input_dim = vocab_size, output_dim = embed_dim, trainable=True,
                                       embeddings_initializer = tf.keras.initializers.Constant(embed_matrix))
         
-        self.dropout = layers.Dropout(rate = 0.5)
+        self.dropout = layers.Dropout(rate = 0.1)
         self.bilstm = layers.Bidirectional(layers.LSTM(units = hidden_dim, return_sequences=True, return_state=False))
         self.fc = layers.Dense(units = num_tags)
         
