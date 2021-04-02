@@ -12,7 +12,6 @@ os.chdir("/home/qwang/pre-pico")
 
 import tensorflow as tf
 import tensorflow_addons as tfa
-from tensorflow.keras import models
 
 from tqdm import tqdm
 import random
@@ -34,7 +33,7 @@ args.lr = 0.01
 args.model='crf'
 args.num_epochs = 10
 
-#%% Load data and obain batches
+#%% Load data and create batches
 json_path = os.path.join(args.data_dir, "tsv/18mar_output/pico_18mar.json")
 # json_path = os.path.join(args.data_dir, "tsv/output/b1.json")
 train_data = utils.load_pico(json_path, group='train')
@@ -50,7 +49,6 @@ test_data = utils.load_pico(json_path, group='test')
 # train_seqs[idx_seq]
 # train_seqs[idx_seq][idx_token_in_seq]
 
- 
 # Obtain batches
 helper = DataBatch(train_data, valid_data, test_data)
 train_batches, valid_batches, test_batches = helper.tf_pipe(args.seed, args.batch_size)
@@ -81,49 +79,16 @@ if args.model == 'lstm_crf':
                        embed_matrix = embed_mat)
 
 #%% Opimizer and scheduler    
-# optimizer = tf.keras.optimizers.Adam(learning_rate = args.lr) 
 # loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)  # Set "from_logits=True" may be more numerically stable
-class LrScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
-    '''Slanted learning rate scheduler'''
-    def __init__(self, lr, warm_steps, total_steps):
-        super(LrScheduler, self).__init__()
-        self.lr = tf.convert_to_tensor(lr)
-        dtype = self.lr.dtype
-        self.warm = tf.cast(warm_steps, dtype)
-        self.total = tf.cast(total_steps, dtype)
-
-    def __call__(self, step):  
-        step = tf.cast(step, self.lr.dtype)
-        y1 = self.lr * step / self.warm
-        y2 = self.lr * (step - self.total) / (self.warm - self.total)         
-        slanted_lr = tf.math.minimum(y1, y2)
-        return slanted_lr
-
-
-class WdScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
-    '''Slanted weight decay scheduler (for AdamW) '''
-    def __init__(self, wd, warm_steps, total_steps):
-        super(WdScheduler, self).__init__()
-        self.wd = tf.convert_to_tensor(wd)
-        dtype = self.wd.dtype
-        self.warm = tf.cast(warm_steps, dtype)
-        self.total = tf.cast(total_steps, dtype)
-
-    def __call__(self, step):    
-        step = tf.cast(step, self.wd.dtype)
-        y1 = self.wd * step / self.warm
-        y2 = self.wd * (step - self.total) / (self.warm - self.total)         
-        slanted_wd = tf.math.minimum(y1, y2)
-        return slanted_wd
-
 total_steps = len(list(train_batches)) * args.epochs
 warm_steps = int(total_steps * args.warm_frac)
 
-lr_scheduler = LrScheduler(args.lr, warm_steps, total_steps)
-wd_scheduler = WdScheduler(1e-2, warm_steps, total_steps)
+lr_scheduler = utils.LrScheduler(args.lr, warm_steps, total_steps)
+wd_scheduler = utils.WdScheduler(1e-2, warm_steps, total_steps)
 
 ## Adam optimizer
 # optimizer = tf.keras.optimizers.Adam(learning_rate = lr_scheduler)  
+
 ## AdamW optimizer
 optimizer = tfa.optimizers.AdamW(learning_rate = lr_scheduler, weight_decay = lambda : None)
 optimizer.weight_decay = lambda : wd_scheduler(optimizer.iterations)
@@ -162,14 +127,11 @@ min_valid_loss = float('inf')
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 valid_loss = tf.keras.metrics.Mean(name='valid_loss')
 
-n_train_batches = len(list(train_batches))
-n_valid_batches = len(list(valid_batches))
-
 for epoch in tf.range(1, args.epochs+1):
     
     ### Train ###
     epoch_preds, epoch_trues = [], []
-    with tqdm(total = n_train_batches) as progress_bar:
+    with tqdm(total = len(list(train_batches))) as progress_bar:
         for batch_seq, batch_tag in train_batches:
             logits, text_lens = train_fn(model, optimizer, train_loss, batch_seq, batch_tag)  # [batch_size, seq_len, num_tags]
             
@@ -193,7 +155,7 @@ for epoch in tf.range(1, args.epochs+1):
     
     ### Valid ###
     epoch_preds, epoch_trues = [], []
-    with tqdm(total = n_valid_batches) as progress_bar:
+    with tqdm(total = len(list(valid_batches))) as progress_bar:
         for batch_seq, batch_tag in valid_batches:
             logits, text_lens = valid_fn(model, valid_loss, batch_seq, batch_tag)    # [batch_size, seq_len, num_tags]
             
@@ -255,8 +217,7 @@ with open(prfs_path, 'w') as fout:
 
 #%% Evaluation on valid/test set (classification report)
 from seqeval.metrics import classification_report
-def cls_report(batches, wgt_file):
-    
+def cls_report(batches, wgt_file): 
     # model = models.load_model(f"{args.exp_dir}/best_tf")
     model.load_weights(f"{args.exp_dir}/best_tf")
     
@@ -276,12 +237,12 @@ def cls_report(batches, wgt_file):
             epoch_trues.append(tag_cut)          
 
     epoch_tag_preds = utils.epoch_idx2tag(epoch_preds, idx2tag)
-    epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)
+    epoch_tag_trues = utils.epoch_idx2tag(epoch_trues, idx2tag)    
+    report = classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False, digits=4)
+    return report
 
-    print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False, digits=4))
-
-cls_report(valid_batches, wgt_file='tf_model_wgts')
-cls_report(test_batches, wgt_file='tf_model_wgts')
+print(cls_report(valid_batches, wgt_file='tf_model_wgts'))
+print(cls_report(test_batches, wgt_file='tf_model_wgts'))
 
    
 #%% Predict
