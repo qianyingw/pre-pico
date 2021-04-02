@@ -13,6 +13,9 @@ import torch
 from pathlib import Path
 from itertools import groupby
 
+import os
+import shutil
+
 #%% Load conll data
 def load_conll(filename):
     '''
@@ -174,3 +177,37 @@ def save_dict_to_json(d, json_path):
         d = {key: float(value) for key, value in d.items()}
         json.dump(d, fout, indent=4)
 
+#%% Learning rate and weight decay scheduler
+import tensorflow as tf
+class LrScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
+    '''Slanted learning rate scheduler'''
+    def __init__(self, lr, warm_steps, total_steps):
+        super(LrScheduler, self).__init__()
+        self.lr = tf.convert_to_tensor(lr)
+        dtype = self.lr.dtype
+        self.warm = tf.cast(warm_steps, dtype)
+        self.total = tf.cast(total_steps, dtype)
+
+    def __call__(self, step):  
+        step = tf.cast(step, self.lr.dtype)
+        y1 = self.lr * step / self.warm
+        y2 = self.lr * (step - self.total) / (self.warm - self.total)         
+        slanted_lr = tf.math.minimum(y1, y2)
+        return slanted_lr
+
+
+class WdScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
+    '''Slanted weight decay scheduler (for AdamW) '''
+    def __init__(self, wd, warm_steps, total_steps):
+        super(WdScheduler, self).__init__()
+        self.wd = tf.convert_to_tensor(wd)
+        dtype = self.wd.dtype
+        self.warm = tf.cast(warm_steps, dtype)
+        self.total = tf.cast(total_steps, dtype)
+
+    def __call__(self, step):    
+        step = tf.cast(step, self.wd.dtype)
+        y1 = self.wd * step / self.warm
+        y2 = self.wd * (step - self.total) / (self.warm - self.total)         
+        slanted_wd = tf.math.minimum(y1, y2)
+        return slanted_wd
