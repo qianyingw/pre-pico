@@ -51,53 +51,7 @@ def sent_detect(text, pth_path):
     return text_cut
 
 
-
-#%% Predict
-def pred_one(text, word2idx, idx2tag, model):
-    '''
-    Return
-        tup: list of tuples (token, tag)
-    '''
-    tokens = [t.text for t in nlp(text)]
-    seqs = []
-    for word in tokens:
-        if word in word2idx:
-            idx = word2idx[word]
-        elif word.lower() in word2idx:
-            idx = word2idx[word.lower()]
-        else:
-            idx = word2idx['<unk>']
-        seqs.append(idx)
-        
-    seqs = tf.convert_to_tensor(seqs, dtype=tf.int32)  # [seq_len]
-    seqs = tf.expand_dims(seqs, 0)  # [batch_size=1, seq_len]
-       
-    if isinstance(model, BiLSTM):   
-        logits = model(seqs)  # [1, seq_len, num_tags] 
-        probs = tf.nn.softmax(logits, axis=2)  # [1, seq_len, num_tags]
-        preds = tf.argmax(probs, axis=2)  # [1, seq_len]
-        
-    if isinstance(model, (CRF, BiLSTM_CRF)):
-        logits, _ = model(seqs)  # [1, seq_len, num_tags] 
-        logit = tf.squeeze(logits, axis = 0)  # [seq_len, num_tags]
-        viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # [seq_len]      
-        # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # [text_len]
-        preds = tf.convert_to_tensor(viterbi, dtype = tf.int32)  # [seq_len]  
-        preds = tf.expand_dims(preds, 0)  # [1, seq_len]
-
-    tags = [idx2tag[idx] for idx in preds.numpy()[0].tolist()]
-    
-    tup = []
-    for token, tag in zip(tokens, tags):
-        tup.append((token, tag))
-    return tup
-
 #%%
-# text = '''Talks over a post-Brexit trade agreement will resume later, after the UK and EU agreed to "go the extra mile" in search of a breakthrough.'''
-# print(pred_one(text, word2idx, idx2tag, model))
-
-#%%
- 
 def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
     '''
     Return
@@ -179,12 +133,14 @@ def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
             indices = [idx for idx, t in enumerate(ent_tags) if t.split('-')[1] == ent]
             sub = [ent_tokens[ic] for ic in indices]
             sub_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(sub))
-            sub_text = re.sub(r" - ", "-", sub_text)
-            tup.append((ent, sub_text))
             
+            sub_text = re.sub(r" - ", "-", sub_text)
+            sub_text = re.sub(r" / ", "/", sub_text)
+            sub_text = re.sub(r"\( ", "(", sub_text)
+            sub_text = re.sub(r" \)", ")", sub_text)
+            if "##" not in sub_text:
+                tup.append((ent, sub_text))      
     return tup
-
-
 
 #%% Convert tuple to entity dictionary and deduplication
 from collections import defaultdict
@@ -194,26 +150,25 @@ def tup2dict(tup):
     for k, *v in tup:
         ent_dict[k].append(v[0])
     # Deduplicate
-    for k, v in ent_dict.items():
-        ent_dict[k] = list(set(v))
-        
+    for k, ls in ent_dict.items():
+        ent_dict[k] = set({v.casefold(): v for v in ls}.values())  # Ignore case        
     return ent_dict
-        
-#%%
-# Read text
-txt_path = '/home/qwang/pre-pico/sample.txt'  # PMC5324681
-with open(txt_path, 'r', encoding='utf-8') as fin:
-    text = fin.read()
+ 
+
+#%% Extract PICO from abstract given pmid
+import pubmed_parser
+xml = pubmed_parser.parse_xml_web(pmid=23326526)
+text = xml['abstract']
 
 ### Extract pico text   
 sent_pth_path = '/media/mynewdrive/pico/exp/sent/abs/best.pth.tar'
 text = sent_detect(text, sent_pth_path)
 
 ### Extract pico phrases
-mod = 'bert_crf'
-pre_wgts = 'pubmed-abs'
-prfs_path = '/media/mynewdrive/pico/exp/bert_crf/bc6_abs/bc6_abs_prfs.json'
-pth_path = '/media/mynewdrive/pico/exp/bert_crf/bc6_abs/best.pth.tar'  
+mod = 'bert'
+pre_wgts = 'biobert'
+prfs_path = '/media/mynewdrive/pico/exp/bert/b0_bio/b0_bio_prfs.json'
+pth_path = '/media/mynewdrive/pico/exp/bert/b0_bio/last.pth.tar'  
 with open(prfs_path) as f:
     dat = json.load(f)    
 idx2tag = dat['idx2tag']
@@ -221,3 +176,57 @@ idx2tag = dat['idx2tag']
 tup = pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag)
 print()
 print(tup2dict(tup))
+       
+#%%
+# Read text
+# txt_path = '/home/qwang/pre-pico/sample.txt'  # PMC5324681
+# with open(txt_path, 'r', encoding='utf-8') as fin:
+#     text = fin.read()
+
+
+#%% Predict
+# def pred_one(text, word2idx, idx2tag, model):
+#     '''
+#     Return
+#         tup: list of tuples (token, tag)
+#     '''
+#     tokens = [t.text for t in nlp(text)]
+#     seqs = []
+#     for word in tokens:
+#         if word in word2idx:
+#             idx = word2idx[word]
+#         elif word.lower() in word2idx:
+#             idx = word2idx[word.lower()]
+#         else:
+#             idx = word2idx['<unk>']
+#         seqs.append(idx)
+        
+#     seqs = tf.convert_to_tensor(seqs, dtype=tf.int32)  # [seq_len]
+#     seqs = tf.expand_dims(seqs, 0)  # [batch_size=1, seq_len]
+       
+#     if isinstance(model, BiLSTM):   
+#         logits = model(seqs)  # [1, seq_len, num_tags] 
+#         probs = tf.nn.softmax(logits, axis=2)  # [1, seq_len, num_tags]
+#         preds = tf.argmax(probs, axis=2)  # [1, seq_len]
+        
+#     if isinstance(model, (CRF, BiLSTM_CRF)):
+#         logits, _ = model(seqs)  # [1, seq_len, num_tags] 
+#         logit = tf.squeeze(logits, axis = 0)  # [seq_len, num_tags]
+#         viterbi, _ = tfa.text.viterbi_decode(logit, model.trans_pars)  # [seq_len]      
+#         # viterbi, _ = tfa.text.viterbi_decode(logit[:text_len], model.transition_params)  # [text_len]
+#         preds = tf.convert_to_tensor(viterbi, dtype = tf.int32)  # [seq_len]  
+#         preds = tf.expand_dims(preds, 0)  # [1, seq_len]
+
+#     tags = [idx2tag[idx] for idx in preds.numpy()[0].tolist()]
+    
+#     tup = []
+#     for token, tag in zip(tokens, tags):
+#         tup.append((token, tag))
+#     return tup
+
+
+# # text = '''Talks over a post-Brexit trade agreement will resume later, after the UK and EU agreed to "go the extra mile" in search of a breakthrough.'''
+# # print(pred_one(text, word2idx, idx2tag, model))
+
+
+
