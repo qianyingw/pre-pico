@@ -8,25 +8,23 @@ Created on Mon Dec 14 12:54:11 2020
 
 import re
 import json
-import spacy
-nlp = spacy.load('en_core_sci_sm')
-import tensorflow as tf
-import tensorflow_addons as tfa
-from model import BiLSTM, CRF, BiLSTM_CRF
+from collections import defaultdict
 
+import spacy
 import torch
+import pubmed_parser
 
 from transformers import BertTokenizerFast, BertForTokenClassification, BertForSequenceClassification
-from transformers import DistilBertTokenizerFast, DistilBertForTokenClassification
-from bert.bert_model import BERT_CRF, BERT_LSTM_CRF, Distil_CRF
+from transformers import logging
+logging.set_verbosity_error()
 
-
-#%% PICO sentence detector
+from bert.bert_model import BERT_CRF, BERT_LSTM_CRF
+nlp = spacy.load('en_core_sci_sm')
 sent_tokenizer = BertTokenizerFast.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract') 
 sent_model = BertForSequenceClassification.from_pretrained('microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract')
 
-def sent_detect(text, pth_path):
-    
+#%% PICO sentence detector
+def sent_detect(text, pth_path): 
     # Split to sents and tokenization
     sents = list(nlp(text).sents)  
     sents = [str(s) for s in sents]     
@@ -50,25 +48,18 @@ def sent_detect(text, pth_path):
     
     return text_cut
 
-
 #%%
 def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
-    '''
-    Return
-        tup: list of tuples (token, tag)
+    ''' tup: list of tuples (token, tag)
     '''
     n_tags = len(idx2tag)
     ## Tokenization
-    pre_wgts = 'distilbert-base-uncased' if pre_wgts == 'distil' else pre_wgts
     pre_wgts = 'bert-base-uncased' if pre_wgts == 'base' else pre_wgts
     pre_wgts = 'dmis-lab/biobert-v1.1' if pre_wgts == 'biobert' else pre_wgts
     pre_wgts = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract' if pre_wgts == 'pubmed-abs' else pre_wgts
     pre_wgts = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext' if pre_wgts == 'pubmed-full' else pre_wgts
-    if pre_wgts == 'distilbert-base-uncased':
-        tokenizer = DistilBertTokenizerFast.from_pretrained(pre_wgts, num_labels=n_tags) 
-    else:
-        tokenizer = BertTokenizerFast.from_pretrained(pre_wgts, num_labels=n_tags) 
-      
+ 
+    tokenizer = BertTokenizerFast.from_pretrained(pre_wgts, num_labels=n_tags) 
     inputs = tokenizer([text], is_split_into_words=True, return_offsets_mapping=True, padding=False, truncation=True)
     inputs = {key: torch.tensor(value) for key, value in inputs.items()} 
 
@@ -79,10 +70,6 @@ def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
         model = BERT_CRF.from_pretrained(pre_wgts, num_labels=n_tags)
     if mod == 'bert_lstm_crf':
         model = BERT_LSTM_CRF.from_pretrained(pre_wgts, num_labels=n_tags)
-    if mod == 'distil':
-        model = DistilBertForTokenClassification.from_pretrained(pre_wgts, num_labels=n_tags)
-    if mod == 'distil_crf':
-        model = Distil_CRF.from_pretrained(pre_wgts, num_labels=n_tags)
     # Load checkpoint
     checkpoint = torch.load(pth_path, map_location=torch.device('cpu'))
     model.load_state_dict(checkpoint['state_dict'], strict=False)
@@ -90,7 +77,7 @@ def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
     model.eval()
     
     ## Run model
-    if mod in ['bert', 'distil']:
+    if mod in ['bert']:
         outputs = model(inputs['input_ids'].unsqueeze(0), inputs['attention_mask'].unsqueeze(0)) 
         logits = outputs[0].squeeze(0)  # [seq_len, n_tags] 
         preds = torch.argmax(logits, dim=1)  # [seq_len]   
@@ -143,8 +130,6 @@ def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
     return tup
 
 #%% Convert tuple to entity dictionary and deduplication
-from collections import defaultdict
-
 def tup2dict(tup):
     ent_dict = defaultdict(list)
     for k, *v in tup:
@@ -152,30 +137,38 @@ def tup2dict(tup):
     # Deduplicate
     for k, ls in ent_dict.items():
         ent_dict[k] = set({v.casefold(): v for v in ls}.values())  # Ignore case        
-    return ent_dict
- 
+    return dict(ent_dict)
 
 #%% Extract PICO from abstract given pmid
-import pubmed_parser
-xml = pubmed_parser.parse_xml_web(pmid=23326526)
-text = xml['abstract']
-
-### Extract pico text   
-sent_pth_path = '/media/mynewdrive/pico/exp/sent/abs/best.pth.tar'
-text = sent_detect(text, sent_pth_path)
-
-### Extract pico phrases
+pmid = 23326526  # 11360989
+sent_pth = '/media/mynewdrive/pico/exp/sent/abs/best.pth.tar'
 mod = 'bert'
 pre_wgts = 'biobert'
 prfs_path = '/media/mynewdrive/pico/exp/bert/b0_bio/b0_bio_prfs.json'
 pth_path = '/media/mynewdrive/pico/exp/bert/b0_bio/last.pth.tar'  
-with open(prfs_path) as f:
-    dat = json.load(f)    
-idx2tag = dat['idx2tag']
-               
-tup = pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag)
-print()
-print(tup2dict(tup))
+
+
+# Obtain abstract by pmid
+try:
+    xml = pubmed_parser.parse_xml_web(pmid)
+    text = xml['abstract']
+    if text == "":
+        print("\nNo abstract available!")    
+        exit
+    else:
+        ## Extract pico text   
+        text = sent_detect(text, sent_pth)
+        # Load idx2tag
+        with open(prfs_path) as f:
+            dat = json.load(f)    
+        idx2tag = dat['idx2tag']
+        # Extract pico phrases              
+        tup = pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag)
+        res = tup2dict(tup)
+        for k, v in res.items():
+            print("\n{}: {}".format(k,v))
+except:
+    print("\nPMID not applicable!")
        
 #%%
 # Read text
