@@ -82,7 +82,7 @@ class BERT_LSTM_CRF(BertPreTrainedModel):
         self.crf = CRF(config.num_labels, batch_first=True)
         
      
-    def forward(self, input_ids, attention_mask, labels=None):
+    def forward(self, input_ids, attention_mask, labels=None, return_probs=False):
                
         outputs = self.bert(input_ids, attention_mask)
         hidden_states = outputs[0]  # [batch_size, seq_len, hidden_size]
@@ -97,7 +97,11 @@ class BERT_LSTM_CRF(BertPreTrainedModel):
             probs_cut = emission_probs[:, 1:-1, :]  # [batch_size, seq_len-2, num_tags]
             mask_cut = attention_mask[:, 1:-1]   # [batch_size, seq_len-2]         
             preds = self.crf.decode(probs_cut, mask=mask_cut)  # assign mask for 'unpad'
-            return preds  # preds: list of list containing best tag seqs for each batch
+            
+            if return_probs == True:
+                return preds, probs_cut
+            else:
+                return preds  # preds: list of list containing best tag seqs for each batch
         else:
             probs_cut, mask_cut, tags_cut = [], [], []
             for prob, mask, tag in zip(emission_probs, attention_mask, labels):
