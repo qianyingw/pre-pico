@@ -49,7 +49,7 @@ def sent_detect(text, pth_path):
     return text_cut
 
 #%%
-def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
+def pico_extract(text, mod, pre_wgts, pth_path, idx2tag):
     ''' tup: list of tuples (token, tag)
     '''
     n_tags = len(idx2tag)
@@ -119,14 +119,23 @@ def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
         for ent in ents_set:
             indices = [idx for idx, t in enumerate(ent_tags) if t.split('-')[1] == ent]
             sub = [ent_tokens[ic] for ic in indices]
-            sub_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(sub))
+            
+            # sub_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(sub))
+            sub_new = []
+            for i, tok in enumerate(sub):
+                if tok.startswith("##"):
+                    if sub_new:
+                        sub_new[-1] = f"{sub_new[-1]}{tok[2:]}"
+                else:
+                    sub_new.append(tok)
+            sub_text = ' '.join(sub_new)
             
             sub_text = re.sub(r" - ", "-", sub_text)
             sub_text = re.sub(r" / ", "/", sub_text)
             sub_text = re.sub(r"\( ", "(", sub_text)
             sub_text = re.sub(r" \)", ")", sub_text)
-            if "##" not in sub_text:
-                tup.append((ent, sub_text))      
+
+            tup.append((ent, sub_text))      
     return tup
 
 #%% Convert tuple to entity dictionary and deduplication

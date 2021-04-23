@@ -49,7 +49,7 @@ def sent_detect(text, pth_path):
     return text_cut
 
 #%%
-def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
+def pico_extract(text, mod, pre_wgts, pth_path, idx2tag):
     ''' tup: list of tuples (token, tag)
     '''
     n_tags = len(idx2tag)
@@ -119,14 +119,23 @@ def pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag):
         for ent in ents_set:
             indices = [idx for idx, t in enumerate(ent_tags) if t.split('-')[1] == ent]
             sub = [ent_tokens[ic] for ic in indices]
-            sub_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(sub))
+            
+            # sub_text = tokenizer.decode(tokenizer.convert_tokens_to_ids(sub))
+            sub_new = []
+            for i, tok in enumerate(sub):
+                if tok.startswith("##"):
+                    if sub_new:
+                        sub_new[-1] = f"{sub_new[-1]}{tok[2:]}"
+                else:
+                    sub_new.append(tok)
+            sub_text = ' '.join(sub_new)                   
             
             sub_text = re.sub(r" - ", "-", sub_text)
             sub_text = re.sub(r" / ", "/", sub_text)
             sub_text = re.sub(r"\( ", "(", sub_text)
             sub_text = re.sub(r" \)", ")", sub_text)
-            if "##" not in sub_text:
-                tup.append((ent, sub_text))      
+
+            tup.append((ent, sub_text))      
     return tup
 
 #%% Convert tuple to entity dictionary and deduplication
@@ -140,35 +149,35 @@ def tup2dict(tup):
     return dict(ent_dict)
 
 #%% Extract PICO from abstract given pmid
-pmid = 23326526  # 11360989
-sent_pth = '/media/mynewdrive/pico/exp/sent/abs/best.pth.tar'
-mod = 'bert'
-pre_wgts = 'biobert'
-prfs_path = '/media/mynewdrive/pico/exp/bert/b0_bio/b0_bio_prfs.json'
-pth_path = '/media/mynewdrive/pico/exp/bert/b0_bio/last.pth.tar'  
+# pmid = 23326526  # 11360989
+# sent_pth = '/media/mynewdrive/pico/exp/sent/abs/best.pth.tar'
+# mod = 'bert'
+# pre_wgts = 'biobert'
+# prfs_path = '/media/mynewdrive/pico/exp/bert/b0_bio/b0_bio_prfs.json'
+# pth_path = '/media/mynewdrive/pico/exp/bert/b0_bio/last.pth.tar'  
 
 
-# Obtain abstract by pmid
-try:
-    xml = pubmed_parser.parse_xml_web(pmid)
-    text = xml['abstract']
-    if text == "":
-        print("\nNo abstract available!")    
-        exit
-    else:
-        ## Extract pico text   
-        text = sent_detect(text, sent_pth)
-        # Load idx2tag
-        with open(prfs_path) as f:
-            dat = json.load(f)    
-        idx2tag = dat['idx2tag']
-        # Extract pico phrases              
-        tup = pred_one_bert(text, mod, pre_wgts, pth_path, idx2tag)
-        res = tup2dict(tup)
-        for k, v in res.items():
-            print("\n{}: {}".format(k,v))
-except:
-    print("\nPMID not applicable!")
+# # Obtain abstract by pmid
+# try:
+#     xml = pubmed_parser.parse_xml_web(pmid)
+#     text = xml['abstract']
+#     if text == "":
+#         print("\nNo abstract available!")    
+#         exit
+#     else:
+#         ## Extract pico text   
+#         text = sent_detect(text, sent_pth)
+#         # Load idx2tag
+#         with open(prfs_path) as f:
+#             dat = json.load(f)    
+#         idx2tag = dat['idx2tag']
+#         # Extract pico phrases              
+#         tup = pico_extract(text, mod, pre_wgts, pth_path, idx2tag)
+#         res = tup2dict(tup)
+#         for k, v in res.items():
+#             print("\n{}: {}".format(k,v))
+# except:
+#     print("\nPMID not applicable!")
        
 #%%
 # Read text
@@ -177,7 +186,7 @@ except:
 #     text = fin.read()
 
 
-#%% Predict
+#%% (del) Predict by baseline
 # def pred_one(text, word2idx, idx2tag, model):
 #     '''
 #     Return
