@@ -8,7 +8,7 @@ Created on Fri Apr 23 12:49:15 2021
 
 
 import os
-os.chdir("/home/qwang/pre-pico")
+os.chdir("/home/qwang/pre-pico/bert")
 import random
 import json
 from tqdm import tqdm
@@ -21,13 +21,14 @@ from torch.utils.data import DataLoader
 from transformers import BertTokenizerFast, BertForTokenClassification
 from transformers import AdamW, get_linear_schedule_with_warmup
 
-from bert import bert_utils, bert_fn
+import bert_utils, bert_fn
 
 #%% Load args
 with open('/home/qwang/pre-pico/app/b0_bio.json') as f:
     js = json.load(f) 
 from argparse import Namespace
 args = Namespace(**js['args'])
+args.epochs = 3
 
 random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -49,7 +50,6 @@ class SemiData():
         self.semi_path = '/home/qwang/pre-pico/data/semi_scores_9923.csv'
         self.gold_path = '/home/qwang/pre-pico/data/tsv/18mar_output/pico_18mar.json'
         
-    
     def read_conll_tsv(self, tsv_path):
         ''' Read seqs/tags for one tsv file
             seqs[i] --> ['Leicestershire', '22', 'points', ',', ...], tags[i] --> ['B-ORG', 'O', 'O', ...]
@@ -72,6 +72,7 @@ class SemiData():
             semi_tags.append(tags)
         self.semi_seqs = semi_seqs
         self.semi_tags = semi_tags
+        print('semi data loading finished (size {})'.format(len(semi_seqs)))
         
         
     def load_gold(self):
@@ -81,6 +82,7 @@ class SemiData():
         self.gold_seqs, self.gold_tags = bert_utils.load_pico(json_path, group='train')
         self.gold_valid_seqs, self.gold_valid_tags = bert_utils.load_pico(json_path, group='valid')
         self.gold_test_seqs, self.gold_test_tags = bert_utils.load_pico(json_path, group='test')
+        print('gold data loading finished (train size {})'.format(len(self.gold_seqs)))
         
         
     def load_model(self, pth_path='/media/mynewdrive/pico/exp/bert/b0_bio/last.pth.tar', n_tags=13): 
@@ -92,9 +94,10 @@ class SemiData():
         model.cpu()
         model.eval()
         self.model = model
+        print('Model loaded: {}'.format(pth_path))
 
 
-    def pico_score(self, text, tokenizer, model): 
+    def pico_score(self, text, model): 
         ''' Calculate score across tokens for one semi text
         '''
         # Tokenization
@@ -117,9 +120,10 @@ class SemiData():
         with tqdm(total=len(cand_seqs)) as progress_bar:
             for seq in cand_seqs:
                 text = ' '.join(seq)
-                score = self.pico_score(text, self.tokenizer, self.model)
+                score = self.pico_score(text, self.model)
                 scores.append(score)
                 progress_bar.update(1)
+        print('PICO score computing finished (cand size {})'.format(len(cand_seqs)))
                 
         incl_seqs, incl_tags = [], []
         excl_seqs, excl_tags = [], []
@@ -130,27 +134,9 @@ class SemiData():
             else:
                 excl_seqs.append(seq)
                 excl_tags.append(tag)
-                
+        print('cand split finished (incl {}, excl {})'.format(len(incl_seqs), len(excl_seqs)))        
         return incl_seqs, incl_tags, excl_seqs, excl_tags
     
-
-#%%
-st = SemiData()
-st.load_semi()
-st.load_gold()
-st.load_model()
-
-# Init
-seqs, tags = st.gold_seqs, st.gold_tags
-cand_seqs , cand_tags = st.semi_seqs, st.semi_tags
-
-# Split
-incl_seqs, incl_tags, excl_seqs, excl_tags = st.cand_splitter(cand_seqs, cand_tags, thres=0.99)
-
-# Update        
-cand_seqs, cand_tags = excl_seqs, excl_tags    
-seqs = seqs + incl_seqs
-tags = tags + incl_tags
 
 #%% Loader for training
 class SemiLoader():
@@ -158,7 +144,7 @@ class SemiLoader():
         self.seqs = seqs
         self.tags = tags
     
-    def loader(self, tag2idx, tokenizer, ratio=0.8):
+    def loader(self, tag2idx, ratio=0.8):
         # Split enlarged data into train/valid
         train_size = int(len(self.seqs)*ratio)
         train_seqs, valid_seqs = self.seqs[:train_size], self.seqs[train_size:]
@@ -178,7 +164,7 @@ class SemiLoader():
         return train_loader, valid_loader
 
 #%% Model & Optimizer & Scheduler
-class SelfTrain():
+class SemiTrainer():
     def __init__(self, args, loader_len):   
         ''' Init model/optimizer/scheduler 
         '''
@@ -194,16 +180,15 @@ class SelfTrain():
         self.scheduler = scheduler
         
         
-    def train(self, it, train_loader, valid_loader):
+    def train(self, it, train_loader, valid_loader, iter_dir):
         model = self.model
         optimizer = self.optimizer
         scheduler = self.scheduler
         
-        iter_dir = '/media/mynewdrive/pico/semi/iter_' + str(it)
         if os.path.exists(iter_dir) == False:
             os.makedirs(iter_dir)   
                
-        prfs_dict = {'prfs': {}}
+        prfs_dict = {'iter': it, 'prfs': {}}
         min_valid_loss = float('inf')
         for epoch in range(args.epochs):  
         
@@ -225,20 +210,61 @@ class SelfTrain():
                                         'optim_Dict': optimizer.state_dict()},
                                          is_best = is_best, checkdir = iter_dir)
             
-            print("\n\nEpoch {}/{}...".format(epoch+1, args.epochs))
+            print("\n\nIter {} - Epoch {}/{}...".format(it, epoch+1, args.epochs))
             print('[Train] loss: {0:.3f} | f1: {1:.2f}% | prec: {2:.2f}% | rec: {3:.2f}%'.format(
                 train_scores['loss'], train_scores['f1']*100, train_scores['prec']*100, train_scores['rec']*100))
             print('[Valid] loss: {0:.3f} | f1: {1:.2f}% | prec: {2:.2f}% | rec: {3:.2f}%\n'.format(
                 valid_scores['loss'], valid_scores['f1']*100, valid_scores['prec']*100, valid_scores['rec']*100))
-            
-        # Write performance to json
-        prfs_name = os.path.basename(iter_dir)+'_prfs.json'
-        prfs_path = os.path.join(iter_dir, prfs_name)
-        with open(prfs_path, 'w') as fout:
-            json.dump(prfs_dict, fout, indent=4)
+        
+        return prfs_dict
+        
 
-#%%
-incl_seqs, incl_tags, excl_seqs, excl_tags = selector(cand_seqs, cand_tags, scores, thres=0.99)
+#%% Init
+sd = SemiData()
+sd.load_semi()  # semi_seqs/tags
+sd.load_gold()  # gold_seqs/tags, gold_valid_seqs/tags, gold_test_seqs/tsgs
+# Init model
+sd.load_model()  # '/media/mynewdrive/pico/exp/bert/b0_bio/last.pth.tar'
+# Initital train+valid set (gold train+valid)
+seqs, tags = sd.gold_seqs, sd.gold_tags
+# Initial candidates (all semi set)
+cand_seqs , cand_tags = sd.semi_seqs, sd.semi_tags
+
+
+#%% Self-train iterations
+iters = 3
+for it in range(1, iters+1):
+    
+    incl_seqs, incl_tags, excl_seqs, excl_tags = sd.cand_splitter(cand_seqs, cand_tags, thres=0.99)
+    
+    # Enlarged train set
+    seqs = seqs + incl_seqs
+    tags = tags + incl_tags
+    
+    # Loader for train
+    sloader = SemiLoader(seqs, tags)
+    train_loader, valid_loader = sloader(tag2idx)
+    
+    # Train
+    iter_dir = '/media/mynewdrive/pico/semi/iter_' + str(it)
+    strainer = SemiTrainer(args, len(train_loader))
+    prfs_dict = strainer.train(it, train_loader, valid_loader, iter_dir)
+    
+    # Output prfs
+    prfs_dict['train_size'] = int(len(seqs)*0.8)
+    prfs_name = os.path.basename(iter_dir)+'_prfs.json'
+    prfs_path = os.path.join(iter_dir, prfs_name)
+    with open(prfs_path, 'w') as fout:
+        json.dump(prfs_dict, fout, indent=4)
+    
+    # Update cand        
+    cand_seqs, cand_tags = excl_seqs, excl_tags 
+    # Update model for PICO scores
+    sd.load_model(pth_path = os.path.join(iter_dir, 'last.pth.tar'))
+    
+
+
+
 
 
 
