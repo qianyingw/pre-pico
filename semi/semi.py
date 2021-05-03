@@ -143,15 +143,14 @@ class SemiData():
 
 #%% Loader for training
 class SemiLoader():
-    def __init__(self, seqs, tags):
-        self.seqs = seqs
-        self.tags = tags
+    def __init__(self, train_seqs, train_tags, valid_seqs, valid_tags):
+        self.train_seqs, self.train_tags = train_seqs, train_tags
+        self.valid_seqs, self.valid_tags = valid_seqs, valid_tags
     
     def loader(self, tag2idx, ratio=0.8):
-        # Split enlarged data into train/valid
-        train_size = int(len(self.seqs)*ratio)
-        train_seqs, valid_seqs = self.seqs[:train_size], self.seqs[train_size:]
-        train_tags, valid_tags = self.tags[:train_size], self.tags[train_size:]
+        # train_size = int(len(self.seqs)*ratio)
+        train_seqs, train_tags = self.train_seqs, self.train_tags
+        valid_seqs, valid_tags = self.valid_seqs, self.valid_tags
 
         # Tokenize seqs & encoding tags (set tags for non-first sub tokens to -100)
         train_inputs = bert_utils.tokenize_encode(train_seqs, train_tags, tag2idx, tokenizer)
@@ -229,37 +228,51 @@ sd.load_semi()  # semi_seqs/tags
 sd.load_gold()  # gold_seqs/tags, gold_valid_seqs/tags, gold_test_seqs/tsgs
 # Init model
 sd.load_model()  # '/media/mynewdrive/pico/exp/bert/b0_bio/last.pth.tar'
+
+
 # Initital train+valid set (gold train+valid)
-seqs, tags = sd.gold_seqs, sd.gold_tags
+# seqs, tags = sd.gold_seqs, sd.gold_tags
+# Initial train/valid set
+train_seqs, train_tags = sd.gold_seqs, sd.gold_tags
+valid_seqs, valid_tags = sd.gold_valid_seqs, sd.gold_valid_tags
+
 # Initial candidates (all semi set)
 cand_seqs, cand_tags = sd.semi_seqs, sd.semi_tags
 
-
 #%% Self-train iterations
-iters = 10
-thres = 0.99
+iters = 20
+thres = 0.95
+ratio = 0.8
+
 for it in range(1, iters+1):
     
     incl_seqs, incl_tags, excl_seqs, excl_tags = sd.cand_splitter(cand_seqs, cand_tags, thres)
     
     if len(incl_seqs) == 0:
-        exit('No new records included')
+        break
     else:
-        # Enlarged train set
-        seqs = seqs + incl_seqs
-        tags = tags + incl_tags
+        # Enlarged train/valid set
+        size = int(len(incl_seqs)*ratio)
+        incl_train_seqs, incl_valid_seqs = incl_seqs[:size], incl_seqs[size:]
+        incl_train_tags, incl_valid_tags = incl_tags[:size], incl_tags[size:]
+    
+        train_seqs = train_seqs + incl_train_seqs
+        valid_tags = valid_tags + incl_valid_tags
+        # seqs = seqs + incl_seqs
+        # tags = tags + incl_tags
         
         # Loader for train
-        sloader = SemiLoader(seqs, tags)
+        sloader = SemiLoader(train_seqs, train_tags, valid_seqs, valid_tags)
         train_loader, valid_loader = sloader.loader(tag2idx)
         
         # Train
-        iter_dir = '/media/mynewdrive/pico/semi/iter_' + str(it)
+        iter_dir = '/media/mynewdrive/pico/semi/semi' + str(thres) + '/iter' + str(it)
         strainer = SemiTrainer(args, len(train_loader))
         prfs_dict = strainer.train(it, train_loader, valid_loader, iter_dir)
         
         # Output prfs
-        prfs_dict['train_size'] = int(len(seqs)*0.8)
+        prfs_dict['total_train'] = len(train_seqs)
+        prfs_dict['total_valid'] = len(valid_seqs)
         prfs_name = os.path.basename(iter_dir)+'_prfs.json'
         prfs_path = os.path.join(iter_dir, prfs_name)
         with open(prfs_path, 'w') as fout:
@@ -268,7 +281,7 @@ for it in range(1, iters+1):
         # Update cand        
         cand_seqs, cand_tags = excl_seqs, excl_tags 
         # Update model for PICO scores
-        sd.load_model(pth_path = os.path.join(iter_dir, 'last.pth.tar'))
+        sd.load_model(pth_path = os.path.join(iter_dir, 'best.pth.tar'))
         
 
 #%% Evaluation on valid/test set 
@@ -309,19 +322,23 @@ def cls_report(data_loader, pth_path, device=torch.device('cpu')):
         epoch_trues_cut.append(trues_cut)
     epoch_tag_preds = bert_utils.epoch_idx2tag(epoch_preds_cut, idx2tag)
     epoch_tag_trues = bert_utils.epoch_idx2tag(epoch_trues_cut, idx2tag)
-    print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False, digits=4))    
+    print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False, digits=4))  
+    # print('gold: {}'.format(bert_fn.valid_fn(model, data_loader, idx2tag, tokenizer, device)))
 
 
 # valid/test loader
-valid_inputs = bert_utils.tokenize_encode(sd.gold_valid_seqs, sd.gold_valid_tags, tag2idx, tokenizer)
-valid_dataset = bert_utils.EncodingDataset(valid_inputs)
-valid_loader = DataLoader(valid_dataset, batch_size=16, shuffle=True, collate_fn=bert_utils.PadDoc())
+# valid_inputs = bert_utils.tokenize_encode(sd.gold_valid_seqs, sd.gold_valid_tags, tag2idx, tokenizer)
+# valid_dataset = bert_utils.EncodingDataset(valid_inputs)
+# valid_loader = DataLoader(valid_dataset, batch_size=16, shuffle=True, collate_fn=bert_utils.PadDoc())
 
-test_inputs = bert_utils.tokenize_encode(sd.gold_test_seqs, sd.gold_test_tags, tag2idx, tokenizer)
-test_dataset = bert_utils.EncodingDataset(test_inputs)
-test_loader = DataLoader(test_dataset, batch_size=16, shuffle=True, collate_fn=bert_utils.PadDoc())
+# test_inputs = bert_utils.tokenize_encode(sd.gold_test_seqs, sd.gold_test_tags, tag2idx, tokenizer)
+# test_dataset = bert_utils.EncodingDataset(test_inputs)
+# test_loader = DataLoader(test_dataset, batch_size=16, shuffle=True, collate_fn=bert_utils.PadDoc())
 
 
-pth_path = os.path.join('/media/mynewdrive/pico/semi/iter_1', 'last.pth.tar')
-cls_report(valid_loader, pth_path)
-cls_report(test_loader, pth_path)
+# pth_path = os.path.join('/media/mynewdrive/pico/exp/bert/b0_bio', 'last.pth.tar')
+# pth_path = os.path.join('/media/mynewdrive/pico/semi/semi_0.90/iter_2', 'last.pth.tar')
+# cls_report(valid_loader, pth_path)
+# cls_report(test_loader, pth_path)
+
+
