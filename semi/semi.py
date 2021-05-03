@@ -251,12 +251,15 @@ for it in range(1, iters+1):
     if len(incl_seqs) == 0:
         break
     else:
-        # Enlarged train/valid set
+        # Split incl into semi train/valid
         size = int(len(incl_seqs)*ratio)
         incl_train_seqs, incl_valid_seqs = incl_seqs[:size], incl_seqs[size:]
         incl_train_tags, incl_valid_tags = incl_tags[:size], incl_tags[size:]
-    
+        
+        # Enlarged train/valid set
         train_seqs = train_seqs + incl_train_seqs
+        train_tags = train_tags + incl_train_tags
+        valid_seqs = valid_seqs + incl_valid_seqs
         valid_tags = valid_tags + incl_valid_tags
         # seqs = seqs + incl_seqs
         # tags = tags + incl_tags
