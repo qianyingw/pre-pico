@@ -25,7 +25,7 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
     model.train()
     optimizer.zero_grad()
     
-    epoch_preds_unpad, epoch_trues_unpad = [], []
+    epoch_preds_cut, epoch_trues_cut = [], []
     with tqdm(total=len_iter) as progress_bar:      
         for j, batch in enumerate(data_loader):                      
             
@@ -33,6 +33,7 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
             attn_mask = batch[1].to(device)  # [batch_size, seq_len]
             tags = batch[2].to(device)  # [batch_size, seq_len]
             true_lens = batch[3]  # [batch_size]
+            word_ids = batch[4]   # [batch_size, seq_len]
 
             outputs = model(input_ids, attention_mask = attn_mask, labels = tags)     
                             
@@ -52,20 +53,24 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
             logits = outputs[1]  # [batch_size, seq_len, num_tags]
             # probs = F.softmax(logits, dim=2)  # [batch_size, seq_len, num_tags]
             preds = torch.argmax(logits, dim=2)  # [batch_size, seq_len]            
-            # Append preds/trues with real seq_lens (before padding) to epoch_samaple_preds/trues
-            for p, t, l in zip(preds, tags, true_lens):
-                epoch_preds_unpad.append(p[1:l+1].tolist())  # p[:l].shape = l
-                epoch_trues_unpad.append(t[1:l+1].tolist())  # t[:l].shape = l             
+            
+            for sin_preds, sin_tags, sin_lens, sin_wids in zip(preds, tags, true_lens, word_ids):
+                # list of lists (1st/last tag is -100 so need to move one step)
+                sin_wids = sin_wids[1:sin_lens+1]
+                sin_tags = sin_tags[1:sin_lens+1] 
+                sin_preds = sin_preds[1:sin_lens+1]
+                
+                pre_wid = None
+                sin_preds_new, sin_tags_new = [], []
+                for p, t, wid in zip(sin_preds, sin_tags, sin_wids):
+                    if wid != pre_wid:
+                        sin_preds_new.append(p.tolist())
+                        sin_tags_new.append(t.tolist())
+                    pre_wid = wid
+                epoch_preds_cut.append(sin_preds_new)   # list of lists                 
+                epoch_trues_cut.append(sin_tags_new)  
+                      
             progress_bar.update(1)
-    
-    # Remove ignored index (-100)
-    epoch_preds_cut, epoch_trues_cut = [], []
-    for preds, trues in zip(epoch_preds_unpad, epoch_trues_unpad):  # per sample       
-        preds_cut = [p for (p, t) in zip(preds, trues) if t != -100]
-        trues_cut = [t for (p, t) in zip(preds, trues) if t != -100] 
-          
-        epoch_preds_cut.append(preds_cut)
-        epoch_trues_cut.append(trues_cut)
         
     # Convert epoch_idxs to epoch_tags
     epoch_tag_preds = bert_utils.epoch_idx2tag(epoch_preds_cut, idx2tag)
@@ -85,7 +90,7 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
     
     model.eval()
     
-    epoch_preds_unpad, epoch_trues_unpad = [], []
+    epoch_preds_cut, epoch_trues_cut = [], []
     with torch.no_grad():
         with tqdm(total=len_iter) as progress_bar:      
             for j, batch in enumerate(data_loader):                      
@@ -94,6 +99,7 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
                 attn_mask = batch[1].to(device)  # [batch_size, seq_len]
                 tags = batch[2].to(device)  # [batch_size, seq_len]
                 true_lens = batch[3]  # [batch_size]
+                word_ids = batch[4]   # [batch_size, seq_len]
     
                 outputs = model(input_ids, attention_mask = attn_mask, labels = tags)   
                                 
@@ -103,20 +109,23 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
                 logits =  outputs[1]  # [batch_size, seq_len, num_tags]
                 # probs = F.softmax(logits, dim=2)  # [batch_size, seq_len, num_tags]
                 preds = torch.argmax(logits, dim=2)  # [batch_size, seq_len]            
-                # Append preds/trues with real seq_lens (before padding) to epoch_samaple_preds/trues
-                for p, t, l in zip(preds, tags, true_lens):
-                    epoch_preds_unpad.append(p[1:l+1].tolist())  # p[:l].shape = l
-                    epoch_trues_unpad.append(t[1:l+1].tolist())  # t[:l].shape = l             
-                progress_bar.update(1)                     
-    
-    # Remove ignored index (-100)
-    epoch_preds_cut, epoch_trues_cut = [], []
-    for preds, trues in zip(epoch_preds_unpad, epoch_trues_unpad):  # per sample
-        preds_cut = [p for (p, t) in zip(preds, trues) if t != -100]
-        trues_cut = [t for (p, t) in zip(preds, trues) if t != -100]
-               
-        epoch_preds_cut.append(preds_cut)
-        epoch_trues_cut.append(trues_cut)
+                for sin_preds, sin_tags, sin_lens, sin_wids in zip(preds, tags, true_lens, word_ids):
+                    # list of lists (1st/last tag is -100 so need to move one step)
+                    sin_wids = sin_wids[1:sin_lens+1]
+                    sin_tags = sin_tags[1:sin_lens+1] 
+                    sin_preds = sin_preds[1:sin_lens+1]
+                    
+                    pre_wid = None
+                    sin_preds_new, sin_tags_new = [], []
+                    for p, t, wid in zip(sin_preds, sin_tags, sin_wids):
+                        if wid != pre_wid:
+                            sin_preds_new.append(p.tolist())
+                            sin_tags_new.append(t.tolist())
+                        pre_wid = wid
+                    epoch_preds_cut.append(sin_preds_new)   # list of lists                 
+                    epoch_trues_cut.append(sin_tags_new)  
+                          
+                progress_bar.update(1)
         
     # Convert epoch_idxs to epoch_tags
     epoch_tag_preds = bert_utils.epoch_idx2tag(epoch_preds_cut, idx2tag)
