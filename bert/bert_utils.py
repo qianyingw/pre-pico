@@ -90,6 +90,7 @@ def tokenize_encode(seqs, tags, tag2idx, tokenizer, tag_all_tokens=True):
     inputs = tokenizer(seqs, is_split_into_words=True, return_offsets_mapping=True, padding=False, truncation=True)
     all_tags_enc_old = [[tag2idx[tag] for tag in record] for record in tags]  # convert tags to idxs
     all_tags_enc_new = []
+    all_word_ids = []
     
     for i, tags_old in enumerate(all_tags_enc_old):    # per sample  
         word_ids = inputs.word_ids(batch_index=i)         
@@ -106,9 +107,12 @@ def tokenize_encode(seqs, tags, tag2idx, tokenizer, tag_all_tokens=True):
             pre_word_id = wid
                 
         all_tags_enc_new.append(tags_new)
+        word_ids[0] = -100  # [CLS]
+        word_ids[-1] = -100 # [SEP]
+        all_word_ids.append(word_ids)
     
     # inputs.pop("offset_mapping") 
-    inputs.update({'tags': all_tags_enc_new})
+    inputs.update({'tags': all_tags_enc_new, 'word_ids': all_word_ids})
 
     return inputs
 
@@ -145,7 +149,10 @@ class PadDoc():
         # Store length of each doc for unpad them later
         true_lens = torch.LongTensor([len(x)-2 for x in tags])  # [cls] and [sep] shouldn't be count into length
         
-        return input_ids_padded, attn_masks_padded, tags_padded, true_lens
+        word_ids = [x['word_ids'] for x in sorted_batch]
+        word_ids_padded = nn.utils.rnn.pad_sequence(word_ids, batch_first=True)
+        
+        return input_ids_padded, attn_masks_padded, tags_padded, true_lens, word_ids_padded
     
 #%%
 def epoch_idx2tag(epoch_sample_idxs, idx2tag):
@@ -237,6 +244,8 @@ def save_dict_to_json(d, json_path):
 
 #%%
 import pandas as pd
+import numpy as np
+import json
 import matplotlib.pyplot as plt
 
 def plot_prfs(prfs_json_path):
