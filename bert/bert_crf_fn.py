@@ -51,11 +51,21 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
                 scheduler.step()
                 optimizer.zero_grad()
                             
-            for p, t, l in zip(preds_cut, tags, true_lens):
-                epoch_preds.append(p)   # list of lists                 
-                epoch_trues.append(t[1:l+1].tolist())  # list of lists. (1st/last tag is -100 so need to move one step)
+            for sin_preds, sin_tags, sin_lens, sin_inps in zip(preds_cut, tags, true_lens, input_ids):
+                sin_inps = sin_inps[1:sin_lens+1]
+                sin_tags = sin_tags[1:sin_lens+1] # list of lists (1st/last tag is -100 so need to move one step)
+                tokens = tokenizer.convert_ids_to_tokens(sin_inps)
+				# Remove sub-tokens for evaluation
+                sin_preds_new, sin_tags_new = [], []
+                for p, t, tok in zip(sin_preds, sin_tags, tokens):
+                    if tok.startswith("##") == False:
+                        sin_preds_new.append(p)
+                        sin_tags_new.append(t.tolist())
+                epoch_preds.append(sin_preds_new)   # list of lists                 
+                epoch_trues.append(sin_tags_new)  
+
             progress_bar.update(1)
-        
+    
     # Convert epoch_idxs to epoch_tags
     epoch_tag_preds = bert_utils.epoch_idx2tag(epoch_preds, idx2tag)
     epoch_tag_trues = bert_utils.epoch_idx2tag(epoch_trues, idx2tag)
@@ -92,10 +102,20 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
                 loss = -1 * log_likelihood 
                 batch_loss += loss.item()       
                 
-                for p, t, l in zip(preds_cut, tags, true_lens):
-                    epoch_preds.append(p)   # list of lists                 
-                    epoch_trues.append(t[1:l+1].tolist())  # list of lists (the 1st/last tag is -100 so need to be removed)
-                progress_bar.update(1)             
+                for sin_preds, sin_tags, sin_lens, sin_inps in zip(preds_cut, tags, true_lens, input_ids):
+                    sin_inps = sin_inps[1:sin_lens+1]
+                    sin_tags = sin_tags[1:sin_lens+1] # list of lists (1st/last tag is -100 so need to move one step)
+                    tokens = tokenizer.convert_ids_to_tokens(sin_inps)
+					# Remove sub-tokens for evaluation
+                    sin_preds_new, sin_tags_new = [], []
+                    for p, t, tok in zip(sin_preds, sin_tags, tokens):
+                        if tok.startswith("##") == False:
+                            sin_preds_new.append(p)
+                            sin_tags_new.append(t.tolist())
+                    epoch_preds.append(sin_preds_new)   # list of lists                 
+                    epoch_trues.append(sin_tags_new)  
+                
+                progress_bar.update(1)         
 
     # Convert epoch_idxs to epoch_tags
     epoch_tag_preds = bert_utils.epoch_idx2tag(epoch_preds, idx2tag)
