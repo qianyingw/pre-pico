@@ -34,6 +34,7 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
             attn_mask = batch[1].to(device)  # [batch_size, seq_len]
             tags = batch[2].to(device)  # [batch_size, seq_len]
             true_lens = batch[3]  # [batch_size]
+            word_ids = batch[4]   # [batch_size, seq_len]
         
             # preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)  
             preds_cut, probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
@@ -51,16 +52,17 @@ def train_fn(model, data_loader, idx2tag, optimizer, scheduler, tokenizer, clip,
                 scheduler.step()
                 optimizer.zero_grad()
                             
-            for sin_preds, sin_tags, sin_lens, sin_inps in zip(preds_cut, tags, true_lens, input_ids):
-                sin_inps = sin_inps[1:sin_lens+1]
+            for sin_preds, sin_tags, sin_lens, sin_wids in zip(preds_cut, tags, true_lens, word_ids):
+                sin_wids = sin_wids[1:sin_lens+1]
                 sin_tags = sin_tags[1:sin_lens+1] # list of lists (1st/last tag is -100 so need to move one step)
-                tokens = tokenizer.convert_ids_to_tokens(sin_inps)
-				# Remove sub-tokens for evaluation
+                
+                pre_wid = None
                 sin_preds_new, sin_tags_new = [], []
-                for p, t, tok in zip(sin_preds, sin_tags, tokens):
-                    if tok.startswith("##") == False:
+                for p, t, wid in zip(sin_preds, sin_tags, sin_wids):
+                    if wid != pre_wid:
                         sin_preds_new.append(p)
                         sin_tags_new.append(t.tolist())
+                    pre_wid = wid
                 epoch_preds.append(sin_preds_new)   # list of lists                 
                 epoch_trues.append(sin_tags_new)  
 
@@ -93,6 +95,7 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
                 attn_mask = batch[1].to(device)  # [batch_size, seq_len]
                 tags = batch[2].to(device)  # [batch_size, seq_len]
                 true_lens = batch[3]  # [batch_size]
+                word_ids = batch[4]  # [batch_size, seq_len]
     
                 # preds_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags)   
                 # preds: list of lists. each element is a tag seq with true_len (unpad & -100 removed) for one sample    
@@ -102,19 +105,19 @@ def valid_fn(model, data_loader, idx2tag, tokenizer, device):
                 loss = -1 * log_likelihood 
                 batch_loss += loss.item()       
                 
-                for sin_preds, sin_tags, sin_lens, sin_inps in zip(preds_cut, tags, true_lens, input_ids):
-                    sin_inps = sin_inps[1:sin_lens+1]
+                for sin_preds, sin_tags, sin_lens, sin_wids in zip(preds_cut, tags, true_lens, word_ids):
+                    sin_wids = sin_wids[1:sin_lens+1]
                     sin_tags = sin_tags[1:sin_lens+1] # list of lists (1st/last tag is -100 so need to move one step)
-                    tokens = tokenizer.convert_ids_to_tokens(sin_inps)
-					# Remove sub-tokens for evaluation
+                    
+                    pre_wid = None
                     sin_preds_new, sin_tags_new = [], []
-                    for p, t, tok in zip(sin_preds, sin_tags, tokens):
-                        if tok.startswith("##") == False:
+                    for p, t, wid in zip(sin_preds, sin_tags, sin_wids):
+                        if wid != pre_wid:
                             sin_preds_new.append(p)
                             sin_tags_new.append(t.tolist())
+                        pre_wid = wid
                     epoch_preds.append(sin_preds_new)   # list of lists                 
                     epoch_trues.append(sin_tags_new)  
-                
                 progress_bar.update(1)         
 
     # Convert epoch_idxs to epoch_tags

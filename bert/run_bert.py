@@ -9,6 +9,8 @@ Created on Mon Dec 28 17:02:50 2020
 
 import os
 os.chdir("/home/qwang/pre-pico/bert")
+# import sys
+# sys.path[0] = sys.path[0][:-5]
 
 import random
 import json
@@ -29,13 +31,21 @@ from bert_model import BERT_CRF, BERT_LSTM_CRF, Distil_CRF
 
 #%% Load data
 args = get_args()
-args.epochs = 30
-args.lr = 1e-4
-args.warm_frac = 0 # 0.1
-args.exp_dir = "/home/qwang/pre-pico/exp/bert_crf/bc6_full"
+args.epochs = 20
+args.lr = 1e-3
+args.warm_frac = 0.1 # 0.1
+args.exp_dir = "/media/mynewdrive/pico/exp/bert_crf/temp"
 args.pre_wgts = 'pubmed-full'   # ['distil', 'bert', 'biobert', 'pubmed-full', 'pubmed-abs']
 args.model = 'bert_crf'  # ['bert', 'bert_crf', 'bert_lstm_crf', 'distil', 'distil_crf']
 args.save_model = True
+
+with open('/media/mynewdrive/pico/exp/bert_crf/bc6_full/bc6_full_prfs.json') as f:
+    js = json.load(f) 
+from argparse import Namespace
+args = Namespace(**js['args'])
+idx2tag = js['idx2tag']
+idx2tag = {int(idx): tag for idx, tag in idx2tag.items()}
+tag2idx = {tag: idx for idx, tag in idx2tag.items()}
 
 random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -56,13 +66,14 @@ test_seqs, test_tags = bert_utils.load_pico(json_path, group='test')
 # test_data = bert_utils.load_conll(os.path.join(args.data_dir, "test.txt"))
 
 # Unique tags
-all_tags = train_tags + valid_tags
-tag_set = set(t for tags in all_tags for t in tags)
-tag2idx = {tag: idx for idx, tag in enumerate(tag_set)}
-idx2tag = {idx: tag for tag, idx in tag2idx.items()}
+# all_tags = train_tags + valid_tags
+# tag_set = set(t for tags in all_tags for t in tags)
+# tag2idx = {tag: idx for idx, tag in enumerate(tag_set)}
+# idx2tag = {idx: tag for tag, idx in tag2idx.items()}
+
 
 #%% Encoding and DataLoader
-n_tags = len(tag_set)
+n_tags = 13
 # Define 'Fast' Tokenizer
 if args.pre_wgts == 'distil':
     # tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')   
@@ -185,9 +196,9 @@ for epoch in range(args.epochs):
 # Write performance and args to json
 prfs_name = os.path.basename(args.exp_dir)+'_prfs.json'
 prfs_path = os.path.join(args.exp_dir, prfs_name)
+output_dict['idx2tag'] = idx2tag
 with open(prfs_path, 'w') as fout:
     json.dump(output_dict, fout, indent=4)
-   
     
 #%% Evaluation on valid/test set (classification report)
 from seqeval.metrics import classification_report
@@ -209,14 +220,25 @@ def cls_report(data_loader, pth_path, add_crf=True, device=torch.device('cpu')):
         attn_mask = batch[1].to(device)  # [batch_size, seq_len]
         tags = batch[2].to(device)  # [batch_size, seq_len]
         true_lens = batch[3]  # [batch_size]
+        word_ids = batch[4].to(device)  # [batch_size, seq_len]
         # print(true_lens)
         
         if add_crf == True:          
             preds_cut, probs_cut, mask_cut, log_likelihood = model(input_ids, attention_mask = attn_mask, labels = tags) 
             # preds_cut = model.crf.decode(probs_cut, mask=mask_cut)                      
-            for p, t, l in zip(preds_cut, tags, true_lens):
-                epoch_preds.append(p)   # list of lists                 
-                epoch_trues.append(t[1:l+1].tolist())  # list of lists (the 1st/last tag is -100 so need to be removed)
+            for sin_preds, sin_tags, sin_lens, sin_wids in zip(preds_cut, tags, true_lens, word_ids):
+                sin_wids = sin_wids[1:sin_lens+1]
+                sin_tags = sin_tags[1:sin_lens+1] # list of lists (1st/last tag is -100 so need to move one step)
+                
+                pre_wid = None
+                sin_preds_new, sin_tags_new = [], []
+                for p, t, wid in zip(sin_preds, sin_tags, sin_wids):
+                    if wid != pre_wid:
+                        sin_preds_new.append(p)
+                        sin_tags_new.append(t.tolist())
+                    pre_wid = wid
+                epoch_preds.append(sin_preds_new)   # list of lists                 
+                epoch_trues.append(sin_tags_new)  
         else:     
             outputs = model(input_ids, attention_mask = attn_mask, labels = tags)   
             logits =  outputs[1]  # [batch_size, seq_len, num_tags]
@@ -243,5 +265,8 @@ def cls_report(data_loader, pth_path, add_crf=True, device=torch.device('cpu')):
     print(classification_report(epoch_tag_trues, epoch_tag_preds, output_dict=False, digits=4))    
 
 pth_path = os.path.join(args.exp_dir, 'best.pth.tar')
+cls_report(valid_loader, pth_path, add_crf=True)
+cls_report(test_loader, pth_path, add_crf=True)
+pth_path = os.path.join(args.exp_dir, 'last.pth.tar')
 cls_report(valid_loader, pth_path, add_crf=True)
 cls_report(test_loader, pth_path, add_crf=True)
