@@ -6,21 +6,30 @@ Created on Fri Apr  9 19:18:10 2021
 @author: qwang
 """
 
-import json
 import pubmed_parser
-import pred_fn
 from pred_fn import sent_detect, pico_extract, tup2dict
 
 import streamlit as st
 # streamlit run /home/qwang/pre-pico/app/stream.py
 
 #%%
-mod = 'bert'
-pre_wgts = 'biobert'
-
 sent_pth = '/home/qwang/pre-pico/app/sent_abs.pth.tar'
-prfs_path = '/home/qwang/pre-pico/app/b0_bio.json'
-pth_path = '/home/qwang/pre-pico/app/b0_bio_last.pth.tar' 
+pth_path = '/home/qwang/pre-pico/app/full.pth.tar' 
+
+tag2idx = {'O': 0, 
+		   'B-Species': 1, 
+		   'I-Species': 2, 
+		   'B-Strain': 3, 
+		   'I-Strain': 4, 
+		   'B-Induction': 5, 
+		   'I-Induction': 6, 
+		   'B-Intervention': 7, 
+		   'I-Intervention': 8, 
+		   'B-Comparator': 9, 
+		   'I-Comparator': 10, 
+		   'B-Outcome': 11, 
+		   'I-Outcome': 12}
+idx2tag = {idx: tag for tag, idx in tag2idx.items()}
 
 #%% App
 st.header('PICO extraction for in vivo abstract')
@@ -37,15 +46,10 @@ try:
     else:      
         # st.write(title)
         # st.write(text)
-        
         ## Extract pico text   
         text = sent_detect(text, sent_pth)
-        # Load idx2tag
-        with open(prfs_path) as f:
-            dat = json.load(f)    
-        idx2tag = dat['idx2tag']
         # Extract pico phrases              
-        tup = pico_extract(text, mod, pre_wgts, pth_path, idx2tag)
+        tup, _, _ = pico_extract(text, pth_path, idx2tag)
         res = tup2dict(tup)
         
         st.write("""### Extracted PICO text  ###
