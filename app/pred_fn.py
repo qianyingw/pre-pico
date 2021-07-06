@@ -94,7 +94,7 @@ def pico_extract(text, pth_path, idx2tag):
     # Record span start/end idxs
     sidxs, eidxs = [], []
     for i in range(len(tags)):
-        if tags[0] != 'O':
+        if i == 0 and tags[i] != 'O':
             sidxs.append(0)
             if tags[1] == 'O':
                 eidxs.append(0)                    
