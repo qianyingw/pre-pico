@@ -53,6 +53,8 @@ def pico_extract(text, pth_path, idx2tag):
     ''' tup: list of tuples (token, tag)
     '''
     spacy_tokens = [token.text for token in nlp(text)]
+    spacy_tokens = [t for t in spacy_tokens if t != '\u2009' ]
+    
     ## Tokenization 
     pre_wgts = 'microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext'
     tokenizer = BertTokenizerFast.from_pretrained(pre_wgts, num_labels=13)
